@@ -209,11 +209,28 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
     }
 
     private func nearestRoute(to point: CGPoint, in mapView: MKMapView, threshold: CGFloat) -> UUID? {
-        var best: (id: UUID, dist: CGFloat)? = nil
-        for overlay in mapView.overlays {
-            guard let polyline = overlay as? MKPolyline,
-                  let routeId = UUID(uuidString: polyline.title ?? "") else { continue }
+        // Convert cursor to map coordinates for bounding-box pre-filter
+        let coord = mapView.convert(point, toCoordinateFrom: mapView)
+        let spanLat = mapView.region.span.latitudeDelta
+        let spanLon = mapView.region.span.longitudeDelta
+        let h = max(1.0, Double(mapView.bounds.height))
+        let w = max(1.0, Double(mapView.bounds.width))
+        let padLat = Double(threshold) * spanLat / h
+        let padLon = Double(threshold) * spanLon / w
 
+        var best: (id: UUID, dist: CGFloat)? = nil
+
+        for (routeId, route) in routeIndex {
+            // Bounding-box pre-filter: 4 comparisons to skip distant routes
+            let b = route.boundingBox
+            guard coord.latitude  >= b.minLat - padLat,
+                  coord.latitude  <= b.maxLat + padLat,
+                  coord.longitude >= b.minLon - padLon,
+                  coord.longitude <= b.maxLon + padLon
+            else { continue }
+
+            // Precise segment scan only for candidates that passed the filter
+            guard let polyline = overlayMap[routeId] else { continue }
             let pts = (0..<polyline.pointCount).map {
                 mapView.convert(polyline.points()[$0].coordinate, toPointTo: mapView)
             }
