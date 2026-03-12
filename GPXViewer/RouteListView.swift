@@ -47,7 +47,7 @@ struct RouteListView: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("Routes")
+                Text("")
                     .font(.headline)
                 Spacer()
                 Button(action: { appState.openFilePicker() }) {
@@ -91,11 +91,20 @@ struct RouteListView: View {
     }
 
     private var routeList: some View {
-        ScrollView {
-            LazyVStack(spacing: 0) {
-                ForEach(appState.routes) { route in
-                    RouteRowView(route: route)
-                    Divider().padding(.leading, 32)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(appState.routes) { route in
+                        RouteRowView(route: route)
+                            .id(route.id)
+                        Divider().padding(.leading, 32)
+                    }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .scrollToRoute)) { note in
+                guard let routeId = note.object as? UUID else { return }
+                withAnimation {
+                    proxy.scrollTo(routeId, anchor: .center)
                 }
             }
         }

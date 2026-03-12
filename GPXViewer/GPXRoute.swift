@@ -26,10 +26,19 @@ let routeColorPalette: [RouteColor] = [
     RouteColor(r: 0.55, g: 0.35, b: 0.65),  // mauve
 ]
 
+struct RouteBoundingBox {
+    let minLat: Double
+    let maxLat: Double
+    let minLon: Double
+    let maxLon: Double
+}
+
 struct GPXRoute: Identifiable {
     let id: UUID
     let fileName: String
     let coordinates: [CLLocationCoordinate2D]
+    let simplified: [CLLocationCoordinate2D]  // decimated for map rendering
+    let boundingBox: RouteBoundingBox          // derived from simplified at init time
     let colorIndex: Int
     let fileURL: URL
     let startTime: Date?
@@ -42,15 +51,32 @@ struct GPXRoute: Identifiable {
         return e.timeIntervalSince(s)
     }
 
-    init(fileName: String, coordinates: [CLLocationCoordinate2D], colorIndex: Int,
+    init(fileName: String, coordinates: [CLLocationCoordinate2D],
+         simplified: [CLLocationCoordinate2D], colorIndex: Int,
          fileURL: URL, startTime: Date?, endTime: Date?, totalDistance: Double) {
         self.id = UUID()
         self.fileName = fileName
         self.coordinates = coordinates
+        self.simplified = simplified
         self.colorIndex = colorIndex
         self.fileURL = fileURL
         self.startTime = startTime
         self.endTime = endTime
         self.totalDistance = totalDistance
+
+        var minLat =  Double.infinity, maxLat = -Double.infinity
+        var minLon =  Double.infinity, maxLon = -Double.infinity
+        for c in simplified {
+            if c.latitude  < minLat { minLat = c.latitude  }
+            if c.latitude  > maxLat { maxLat = c.latitude  }
+            if c.longitude < minLon { minLon = c.longitude }
+            if c.longitude > maxLon { maxLon = c.longitude }
+        }
+        self.boundingBox = RouteBoundingBox(
+            minLat: minLat.isFinite ? minLat : 0,
+            maxLat: maxLat.isFinite ? maxLat : 0,
+            minLon: minLon.isFinite ? minLon : 0,
+            maxLon: maxLon.isFinite ? maxLon : 0
+        )
     }
 }

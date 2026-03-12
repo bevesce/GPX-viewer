@@ -2,7 +2,12 @@
   "permissions": {
     "allow": [
       "Bash(mkdir:*)",
-      "Bash(xcodebuild:*)"
+      "Bash(xcodebuild:*)",
+      "Bash(find \"/Users/piotrek/Library/Mobile Documents/com~apple~CloudDocs/AP/GPX/all\" -type f -name \"*.gpx\" -exec ls -lh {} \\\\; | head -20)",
+      "Bash(find \"/Users/piotrek/Library/Mobile Documents/com~apple~CloudDocs/AP/GPX/all\" -type f -name \"*.gpx\" -exec ls -lhS {} \\\\; | head -10)",
+      "Bash(find \"/Users/piotrek/Library/Mobile Documents/com~apple~CloudDocs/AP/GPX/all\" -type f -name \"*.gpx\" -exec du -h {})",
+      "Bash(find \"/Users/piotrek/Library/Mobile Documents/com~apple~CloudDocs/AP/GPX/all\" -type f -name \"*.gpx\" -exec du -b {})",
+      "Bash(find \"/Users/piotrek/Library/Mobile Documents/com~apple~CloudDocs/AP/GPX/all\" -type f -name \"*.gpx\" -exec stat -f '%z' {})"
     ]
   }
 }

@@ -35,13 +35,31 @@ struct ContentView: View {
                 }
 
                 // Toolbar overlay
-                VStack {
-                    HStack {
+                if !appState.routes.isEmpty {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            mapToolbar
+                                .padding(10)
+                        }
                         Spacer()
-                        mapToolbar
-                            .padding(10)
                     }
-                    Spacer()
+                }
+
+                // Loading progress overlay (bottom-left)
+                if let progress = appState.loadingProgress {
+                    VStack {
+                        Spacer()
+                        HStack {
+                            ProgressView(value: progress)
+                                .frame(width: 160)
+                            .padding(8)
+                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                            .shadow(radius: 4)
+                            .padding(10)
+                            Spacer()
+                        }
+                    }
                 }
             }
         }
@@ -52,25 +70,13 @@ struct ContentView: View {
     }
 
     private var mapToolbar: some View {
-        HStack(spacing: 6) {
-            Button(action: { appState.openFilePicker() }) {
-                Label("Open Files", systemImage: "folder.badge.plus")
-                    .font(.system(size: 12))
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .help("Open GPX files or folder (⌘O)")
-
-            if !appState.routes.isEmpty {
-                Button(action: fitAll) {
-                    Label("Fit All", systemImage: "arrow.up.left.and.arrow.down.right")
-                        .font(.system(size: 12))
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .help("Fit map to show all routes")
-            }
+        Button(action: fitAll) {
+            Label("Fit All", systemImage: "arrow.up.left.and.arrow.down.right")
+                .font(.system(size: 12))
         }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
+        .help("Fit map to show all routes")
         .padding(6)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         .shadow(radius: 4)
@@ -106,6 +112,7 @@ struct ContentView: View {
 }
 
 extension Notification.Name {
-    static let fitAllRoutes = Notification.Name("fitAllRoutes")
-    static let zoomToRoute  = Notification.Name("zoomToRoute")
+    static let fitAllRoutes  = Notification.Name("fitAllRoutes")
+    static let zoomToRoute   = Notification.Name("zoomToRoute")
+    static let scrollToRoute = Notification.Name("scrollToRoute")
 }

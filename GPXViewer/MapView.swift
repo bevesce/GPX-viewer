@@ -46,7 +46,7 @@ final class HoverableMapView: MKMapView {
     override func mouseUp(with event: NSEvent) {
         super.mouseUp(with: event)
         if !didDrag, let pt = mouseDownPoint {
-            coordinator?.handleClick(at: pt, in: self)
+            coordinator?.handleClick(at: pt, in: self, clickCount: event.clickCount)
         }
         mouseDownPoint = nil
         didDrag = false
@@ -59,10 +59,16 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
     let appState: AppState
     weak var mapView: HoverableMapView?
 
-    // Tracks what was last rendered to avoid redundant work
     var lastRouteIds: [UUID] = []
     var lastSelectedId: UUID? = nil
     var lastHoveredId: UUID? = nil
+
+    // O(1) lookups by route ID
+    private var overlayMap: [UUID: MKPolyline] = [:]
+    private var routeIndex: [UUID: GPXRoute] = [:]
+
+    // Current map span, updated on region changes
+    private var currentSpan: Double = 0.05
 
     init(appState: AppState) {
         self.appState = appState
@@ -70,41 +76,73 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
 
     // MARK: Overlay management
 
-    func rebuildOverlays(on mapView: MKMapView) {
-        mapView.removeOverlays(mapView.overlays)
-        for route in appState.routes {
-            let polyline = MKPolyline(coordinates: route.coordinates, count: route.coordinates.count)
-            polyline.title = route.id.uuidString
-            mapView.addOverlay(polyline, level: .aboveRoads)
+    func updateOverlays(on mapView: MKMapView) {
+        let currentIds = Set(appState.routes.map { $0.id })
+        let previousIds = Set(overlayMap.keys)
+
+        // Remove overlays for deleted routes
+        let removedIds = previousIds.subtracting(currentIds)
+        if !removedIds.isEmpty {
+            let toRemove = removedIds.compactMap { overlayMap[$0] }
+            mapView.removeOverlays(toRemove)
+            removedIds.forEach {
+                overlayMap.removeValue(forKey: $0)
+                routeIndex.removeValue(forKey: $0)
+            }
         }
-        if appState.routes.count > lastRouteIds.count {
-            fitMap(mapView)
+
+        // Add overlays for new routes
+        let addedIds = currentIds.subtracting(previousIds)
+        if !addedIds.isEmpty {
+            var newOverlays: [MKPolyline] = []
+            for route in appState.routes where addedIds.contains(route.id) {
+                let coords = route.simplified
+                let polyline = MKPolyline(coordinates: coords, count: coords.count)
+                polyline.title = route.id.uuidString
+                overlayMap[route.id] = polyline
+                routeIndex[route.id] = route
+                newOverlays.append(polyline)
+            }
+            mapView.addOverlays(newOverlays, level: .aboveRoads)
         }
+
         lastRouteIds = appState.routes.map { $0.id }
     }
 
     func refreshRenderers(on mapView: MKMapView) {
-        for overlay in mapView.overlays {
-            guard
-                let polyline = overlay as? MKPolyline,
-                let routeId = UUID(uuidString: polyline.title ?? ""),
-                let renderer = mapView.renderer(for: overlay) as? MKPolylineRenderer,
-                let route = appState.routes.first(where: { $0.id == routeId })
-            else { continue }
+        // Only touch the renderers whose active state actually changed
+        var changedIds: Set<UUID> = []
+        if let id = lastSelectedId      { changedIds.insert(id) }
+        if let id = appState.selectedRouteId { changedIds.insert(id) }
+        if let id = lastHoveredId       { changedIds.insert(id) }
+        if let id = appState.hoveredRouteId  { changedIds.insert(id) }
 
-            let active = appState.selectedRouteId == routeId || appState.hoveredRouteId == routeId
+        for id in changedIds {
+            guard let polyline = overlayMap[id],
+                  let renderer = mapView.renderer(for: polyline) as? MKPolylineRenderer,
+                  let route = routeIndex[id]
+            else { continue }
+            let active = appState.selectedRouteId == id || appState.hoveredRouteId == id
             applyStyle(renderer: renderer, route: route, active: active)
             renderer.setNeedsDisplay()
         }
+
         lastSelectedId = appState.selectedRouteId
         lastHoveredId = appState.hoveredRouteId
     }
 
     private func applyStyle(renderer: MKPolylineRenderer, route: GPXRoute, active: Bool) {
         renderer.strokeColor = route.color.nsColor.withAlphaComponent(active ? 1.0 : 0.65)
-        renderer.lineWidth = active ? 5.5 : 3.0
+        renderer.lineWidth = scaledLineWidth(base: active ? 5.5 : 3.0)
         renderer.lineCap = .round
         renderer.lineJoin = .round
+    }
+
+    // Widens lines logarithmically as the map zooms out.
+    // At span ~0.01°: 1× base. Each 10× increase in span adds 0.5× base.
+    private func scaledLineWidth(base: CGFloat) -> CGFloat {
+        let logFactor = log10(max(currentSpan, 0.01) / 0.01)
+        return base * CGFloat(1.0 + logFactor * 0.5)
     }
 
     // MARK: MKMapViewDelegate
@@ -115,11 +153,25 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
         }
         let renderer = MKPolylineRenderer(polyline: polyline)
         if let routeId = UUID(uuidString: polyline.title ?? ""),
-           let route = appState.routes.first(where: { $0.id == routeId }) {
+           let route = routeIndex[routeId] {
             let active = appState.selectedRouteId == routeId || appState.hoveredRouteId == routeId
             applyStyle(renderer: renderer, route: route, active: active)
         }
         return renderer
+    }
+
+    // MARK: Region changes
+
+    func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+        currentSpan = mapView.region.span.latitudeDelta
+        for (routeId, polyline) in overlayMap {
+            guard let renderer = mapView.renderer(for: polyline) as? MKPolylineRenderer,
+                  let route = routeIndex[routeId]
+            else { continue }
+            let active = appState.selectedRouteId == routeId || appState.hoveredRouteId == routeId
+            applyStyle(renderer: renderer, route: route, active: active)
+            renderer.setNeedsDisplay()
+        }
     }
 
     // MARK: Hit testing
@@ -141,7 +193,7 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
         }
     }
 
-    func handleClick(at point: CGPoint, in mapView: MKMapView) {
+    func handleClick(at point: CGPoint, in mapView: MKMapView, clickCount: Int) {
         let routeId = nearestRoute(to: point, in: mapView, threshold: 12)
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
@@ -149,6 +201,9 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
                 self.appState.selectedRouteId = nil
             } else {
                 self.appState.selectedRouteId = routeId
+                if let routeId {
+                    NotificationCenter.default.post(name: .scrollToRoute, object: routeId)
+                }
             }
         }
     }
@@ -187,38 +242,39 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
     // MARK: Map fitting
 
     @objc func handleFitAll() {
-        if let mapView = mapView { fitMap(mapView) }
+        guard let mapView else { return }
+        guard !routeIndex.isEmpty else { return }
+        var minLat =  Double.infinity, maxLat = -Double.infinity
+        var minLon =  Double.infinity, maxLon = -Double.infinity
+        for route in routeIndex.values {
+            let b = route.boundingBox
+            if b.minLat < minLat { minLat = b.minLat }
+            if b.maxLat > maxLat { maxLat = b.maxLat }
+            if b.minLon < minLon { minLon = b.minLon }
+            if b.maxLon > maxLon { maxLon = b.maxLon }
+        }
+        applyRegion(mapView, minLat: minLat, maxLat: maxLat, minLon: minLon, maxLon: maxLon)
     }
 
     @objc func handleZoomToRoute(_ notification: Notification) {
         guard let routeId = notification.object as? UUID,
-              let route = appState.routes.first(where: { $0.id == routeId }),
-              let mapView = mapView else { return }
-        fitMap(mapView, coords: route.coordinates)
+              let route = routeIndex[routeId],
+              let mapView else { return }
+        let b = route.boundingBox
+        applyRegion(mapView, minLat: b.minLat, maxLat: b.maxLat, minLon: b.minLon, maxLon: b.maxLon)
     }
 
-    func fitMap(_ mapView: MKMapView) {
-        let allCoords = appState.routes.flatMap { $0.coordinates }
-        fitMap(mapView, coords: allCoords)
-    }
-
-    private func fitMap(_ mapView: MKMapView, coords: [CLLocationCoordinate2D]) {
-        let allCoords = coords
-        guard !allCoords.isEmpty else { return }
-
-        let lats = allCoords.map { $0.latitude }
-        let lons = allCoords.map { $0.longitude }
-        let minLat = lats.min()!, maxLat = lats.max()!
-        let minLon = lons.min()!, maxLon = lons.max()!
-
+    private func applyRegion(_ mapView: MKMapView,
+                              minLat: Double, maxLat: Double,
+                              minLon: Double, maxLon: Double) {
         let center = CLLocationCoordinate2D(
-            latitude: (minLat + maxLat) / 2,
+            latitude:  (minLat + maxLat) / 2,
             longitude: (minLon + maxLon) / 2
         )
         let region = MKCoordinateRegion(
             center: center,
             span: MKCoordinateSpan(
-                latitudeDelta: max((maxLat - minLat) * 1.4, 0.005),
+                latitudeDelta:  max((maxLat - minLat) * 1.4, 0.005),
                 longitudeDelta: max((maxLon - minLon) * 1.4, 0.005)
             )
         )
@@ -263,7 +319,7 @@ struct MapView: NSViewRepresentable {
         let currentIds = appState.routes.map { $0.id }
 
         if currentIds != coord.lastRouteIds {
-            coord.rebuildOverlays(on: mapView)
+            coord.updateOverlays(on: mapView)
         } else if appState.selectedRouteId != coord.lastSelectedId
                     || appState.hoveredRouteId != coord.lastHoveredId {
             coord.refreshRenderers(on: mapView)

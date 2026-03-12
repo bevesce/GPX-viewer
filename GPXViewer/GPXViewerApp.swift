@@ -11,7 +11,7 @@ struct GPXViewerApp: App {
         }
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("Open GPX File or Folder…") {
+                Button("Open…") {
                     appState.openFilePicker()
                 }
                 .keyboardShortcut("o", modifiers: .command)
