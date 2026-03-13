@@ -11,7 +11,7 @@ class AppState: ObservableObject {
     private let loadQueue = DispatchQueue(label: "gpx.load", qos: .userInitiated)
 
     func loadURLs(_ urls: [URL]) {
-        // Snapshot existing URLs for deduplication before going to background
+        // Snapshot on main thread before going to background
         let existingURLs = Set(routes.map { $0.fileURL })
         let initialColorIndex = routes.count
 
@@ -29,10 +29,9 @@ class AppState: ObservableObject {
                         includingPropertiesForKeys: [.isDirectoryKey],
                         options: [.skipsHiddenFiles]
                     ) {
-                        let files = contents
+                        allURLs += contents
                             .filter { $0.pathExtension.lowercased() == "gpx" }
                             .sorted { $0.lastPathComponent < $1.lastPathComponent }
-                        allURLs += files
                     }
                 } else if url.pathExtension.lowercased() == "gpx" {
                     allURLs.append(url)
@@ -43,48 +42,62 @@ class AppState: ObservableObject {
             guard !newURLs.isEmpty else { return }
 
             let totalCount = newURLs.count
-            DispatchQueue.main.async { [weak self] in
-                self?.loadingProgress = 0.0
-            }
+            DispatchQueue.main.async { [weak self] in self?.loadingProgress = 0.0 }
 
-            let batchSize = 20
-            var batch: [GPXRoute] = []
-            var colorIndex = initialColorIndex
-            var anyAdded = false
+            // Parse all files concurrently; results keyed by original index to preserve order
+            var results = [Int: GPXRoute]()
+            var completed = 0
+            var lastReportedFraction = 0.0
+            let lock = NSLock()
 
-            for (i, url) in newURLs.enumerated() {
-                guard let parsed = GPXParser.parse(url: url) else { continue }
-                let route = GPXRoute(
-                    fileName: url.deletingPathExtension().lastPathComponent,
-                    coordinates: parsed.coordinates,
-                    simplified: parsed.simplified,
-                    colorIndex: colorIndex,
-                    fileURL: url,
-                    startTime: parsed.startTime,
-                    endTime: parsed.endTime,
-                    totalDistance: parsed.totalDistance
-                )
-                batch.append(route)
-                colorIndex += 1
-                anyAdded = true
+            DispatchQueue.concurrentPerform(iterations: totalCount) { i in
+                let url = newURLs[i]
+                var route: GPXRoute? = nil
+                if let parsed = GPXParser.cachedParse(url: url) {
+                    route = GPXRoute(
+                        fileName: url.deletingPathExtension().lastPathComponent,
+                        coordinates: parsed.coordinates,
+                        simplified: parsed.simplified,
+                        colorIndex: initialColorIndex + i,
+                        fileURL: url,
+                        startTime: parsed.startTime,
+                        endTime: parsed.endTime,
+                        totalDistance: parsed.totalDistance
+                    )
+                }
 
-                if batch.count >= batchSize || i == newURLs.count - 1 {
-                    let toAppend = batch
-                    batch = []
-                    let progress = Double(i + 1) / Double(totalCount)
-                    DispatchQueue.main.async { [weak self] in
-                        self?.routes.append(contentsOf: toAppend)
-                        self?.loadingProgress = progress
-                    }
+                lock.lock()
+                if let route { results[i] = route }
+                completed += 1
+                let fraction = Double(completed) / Double(totalCount)
+                // Report progress at most every 5% to avoid flooding the main queue
+                let shouldReport = fraction - lastReportedFraction >= 0.05 || completed == totalCount
+                if shouldReport { lastReportedFraction = fraction }
+                lock.unlock()
+
+                if shouldReport {
+                    let f = fraction
+                    DispatchQueue.main.async { [weak self] in self?.loadingProgress = f }
                 }
             }
 
-            // Runs after all batch appends because the main queue is FIFO
+            // Collect routes in original URL order, then push to main thread in batches
+            let ordered = (0..<totalCount).compactMap { results[$0] }
+            guard !ordered.isEmpty else {
+                DispatchQueue.main.async { [weak self] in self?.loadingProgress = nil }
+                return
+            }
+
+            let batchSize = 40
+            for start in stride(from: 0, to: ordered.count, by: batchSize) {
+                let batch = Array(ordered[start..<min(start + batchSize, ordered.count)])
+                DispatchQueue.main.async { [weak self] in self?.routes.append(contentsOf: batch) }
+            }
+
+            // Fit after all batches land — main queue is FIFO so this runs last
             DispatchQueue.main.async { [weak self] in
                 self?.loadingProgress = nil
-                if anyAdded {
-                    NotificationCenter.default.post(name: .fitAllRoutes, object: nil)
-                }
+                NotificationCenter.default.post(name: .fitAllRoutes, object: nil)
             }
         }
     }

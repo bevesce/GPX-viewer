@@ -12,200 +12,255 @@ Dataset baseline: 474 files, ~84 MB on disk, ~870 000 total track points.
 | 2 | Coordinate decimation (Douglas-Peucker, ε = 0.0001°) |
 | 4 | Incremental overlay management (`[UUID: MKPolyline]` dict) |
 | 5 | Lazy renderer refresh (only touch changed IDs on hover/select) |
-
-Simplified routes average ~200 pts (was ~1 840). This reduced the hit-test scan ~10× and dropped
-the "all renderers on hover" redraws from 474 to 2.
-
----
-
-## Remaining bottlenecks (re-evaluated)
+| A | Spatial index for hover hit-testing (bounding-box pre-filter) |
+| B | Route lookup dictionary (`routeIndex`) — O(1) everywhere |
+| C | `RouteBoundingBox` on `GPXRoute`; `fitMap` uses bounding boxes |
+| Parallel | `concurrentPerform` across all cores for parsing |
+| Cache | Binary parse cache validated by file modification date |
 
 ---
 
-### A. Spatial index for hover hit-testing (was #3 — still the biggest bottleneck)
+## Zoom and pan performance (new section)
 
-**Problem:** `nearestRoute` still does an O(N × M) scan on every `mouseMoved` event.
-With simplified routes the numbers are now 474 routes × ~200 pts × 60 Hz ≈ **5.7 M segment
-comparisons/second** on the main thread. The original 52 M is gone, but 5.7 M is still
-enough to cause stutter, especially while the list is also scrolling or SwiftUI is animating.
+The map becomes sluggish with 474 routes because of how MapKit processes overlays.
+The problems are distinct for pan vs zoom.
+
+---
+
+### P1. `regionDidChangeAnimated` refreshes all 474 renderers on every pan (quick win)
+
+**Root cause:** `regionDidChangeAnimated` fires after both pan and zoom. The current code
+unconditionally calls `applyStyle` + `setNeedsDisplay()` on all 474 renderers every time.
+After a pure pan the span has not changed, so `scaledLineWidth` returns the same value as
+before — the 474 redraws are completely wasted.
 
 **Fix:**
-- After each `updateOverlays`, build a flat array of axis-aligned bounding boxes (one per route).
-- On `mouseMoved`, convert the cursor to map coordinates, expand it by the hit threshold (≈ 20 m),
-  and reject any route whose bounding box does not intersect that expanded point.
-- Only run the segment scan on the small candidate set (typically 1–5 routes out of 474).
-- Bounding boxes are just `(minLat, maxLat, minLon, maxLon)` — trivial to compute from the
-  existing `simplified` arrays; no third-party library needed.
+```swift
+private var lastSpan: Double = 0
 
-**Expected gain:** Hit-test per frame drops from O(N × M) to O(N) bounding-box tests +
-O(k × M) precise tests where k ≈ 1–5. Mouse lag disappears.
+func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+    let newSpan = mapView.region.span.latitudeDelta
+    guard abs(newSpan - lastSpan) / max(lastSpan, 1e-9) > 0.01 else { return } // <1% change
+    lastSpan = newSpan
+    currentSpan = newSpan
+    // ... existing renderer refresh loop
+}
+```
+A 1 % threshold means line widths only update when the user actually zooms; panning is free.
+
+**Expected gain:** Zero renderer work during pan. Eliminates 474 × `setNeedsDisplay()` after
+every drag gesture end.
 
 ---
 
-### B. Route lookup dictionary (new — O(N) linear scans in hot paths)
+### P2. `setNeedsDisplay()` called on off-screen overlays after zoom
 
-**Problem:** `appState.routes.first(where: { $0.id == routeId })` appears in four hot paths:
+**Root cause:** After a zoom, we refresh all 474 renderers even when the viewport shows only
+a small area (e.g. one city). Routes in other cities have no rendered tiles in the current
+view, so their `setNeedsDisplay()` causes MapKit to schedule tile invalidation work that
+produces no visible change.
 
-1. `mapView(_:rendererFor:)` — called 474 times during initial load → O(N²) total
-2. `regionDidChangeAnimated` — called after every pan/zoom, iterates all overlays and
-   calls `routes.first` for each → O(N²) per gesture end
-3. `refreshRenderers` — O(N) per changed ID (minor, at most 4 IDs)
-4. `handleZoomToRoute` — one-off, negligible
+**Fix:** Filter by the visible region before refreshing. In `regionDidChangeAnimated`, skip
+any route whose `boundingBox` does not intersect the current `mapView.region`:
 
-With 474 routes, items 1 and 2 are each ~224 k comparisons per call.
+```swift
+let region = mapView.region
+let visMinLat = region.center.latitude  - region.span.latitudeDelta  / 2
+let visMaxLat = region.center.latitude  + region.span.latitudeDelta  / 2
+let visMinLon = region.center.longitude - region.span.longitudeDelta / 2
+let visMaxLon = region.center.longitude + region.span.longitudeDelta / 2
+
+for (routeId, polyline) in overlayMap {
+    guard let route = routeIndex[routeId] else { continue }
+    let b = route.boundingBox
+    guard b.maxLat >= visMinLat, b.minLat <= visMaxLat,
+          b.maxLon >= visMinLon, b.minLon <= visMaxLon
+    else { continue }   // off-screen — skip
+    // applyStyle + setNeedsDisplay
+}
+```
+
+**Expected gain:** When zoomed into one city out of 474 routes spread across a country,
+only the ~10–30 visible routes are refreshed instead of all 474.
+
+---
+
+### P3. `mapView.renderer(for:)` called 474 times per zoom end
+
+**Root cause:** `mapView.renderer(for: polyline)` is a MapKit API call with non-trivial
+internal overhead (it looks up a renderer registry). We call it 474 times every time
+the region changes.
+
+**Fix:** Cache renderer references alongside `overlayMap`:
+```swift
+private var rendererCache: [UUID: MKPolylineRenderer] = [:]
+```
+Populate in `mapView(_:rendererFor:)` (called once per overlay on first render):
+```swift
+func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+    let renderer = MKPolylineRenderer(polyline: polyline)
+    // ... applyStyle ...
+    rendererCache[routeId] = renderer   // store reference
+    return renderer
+}
+```
+Evict in `updateOverlays` when overlays are removed. In `regionDidChangeAnimated` and
+`refreshRenderers`, use `rendererCache[routeId]` instead of `mapView.renderer(for:)`.
+
+**Expected gain:** 474 MapKit API calls per gesture → 474 direct dictionary lookups.
+Measurable reduction in the post-zoom spike, especially on older hardware.
+
+---
+
+### P4. 474 independent `MKPolyline` overlays — the fundamental bottleneck
+
+**Root cause:** MapKit's rendering pipeline processes each overlay independently. For every
+map tile that enters the viewport during a pan, MapKit checks all 474 overlays for
+intersection, rasterizes the intersecting ones, and composites them. With 474 overlays
+this work is O(N) per tile per frame. Apple's own guidance is to keep overlay counts below
+~100 for smooth scrolling.
+
+**Fix — `MKMultiPolyline` grouping:**
+
+Group inactive routes by their color slot (the palette has 10 colors) into 10
+`MKMultiPolyline` overlays instead of 474 individual `MKPolyline` overlays. `MKMultiPolyline`
+was introduced in macOS 10.15 and is rendered as a single draw call per group.
+
+- Steady-state overlay count: **10 group overlays + 0–2 individual overlays** for the active
+  (hovered/selected) route(s), which need distinct styling.
+- On hover/selection: pull the route out of its group multi-polyline, replace the group with
+  a version that excludes it, and add a styled individual polyline on top. Reverse on
+  deselect.
+- Requires rebuilding the multi-polyline for the affected color group (~47 routes) on each
+  state change — acceptable since it only happens on click/hover.
+
+**Expected gain:** MapKit tile-intersection and rasterization work drops from O(474) to O(12)
+per tile. Pan and zoom become significantly smoother, especially at country-level zoom where
+all routes are visible.
+
+---
+
+### P5. Viewport culling — remove off-screen overlays entirely
+
+**Root cause:** Even overlays that are completely outside the visible region remain registered
+with MapKit and contribute to its internal spatial bookkeeping. When the user pans, MapKit
+re-evaluates all 474 overlays to decide which tiles to render.
 
 **Fix:**
-- Add `var routeIndex: [UUID: GPXRoute] = [:]` to `MapViewCoordinator`.
-- Keep it in sync in `updateOverlays` (insert on add, remove on delete).
-- Replace every `routes.first(where:)` call in the coordinator with a direct dictionary lookup.
+- In `regionDidChangeAnimated`, compute the visible region (with a 20 % buffer for
+  pre-loading).
+- Remove overlays whose `boundingBox` falls entirely outside the buffered region.
+- Re-add them when the user pans toward them.
+- Use the existing `overlayMap` / `routeIndex` to track which routes are currently
+  "mounted" vs "dormant".
 
-**Expected gain:** `rendererFor` and `regionDidChangeAnimated` drop from O(N²) to O(N).
-Combined with fix A, `regionDidChangeAnimated` becomes a tight O(N) loop with no allocations.
+This requires careful bookkeeping (a third set, `dormantRoutes`, alongside `overlayMap`)
+but the logic is straightforward.
+
+**Expected gain:** If the user is viewing one city, ~30 routes are mounted in MapKit instead
+of 474. Tile-intersection work and rasterization are proportional to mounted count.
+Complements P4 well — P4 reduces overlay count structurally, P5 reduces it dynamically.
 
 ---
 
-### C. `fitMap` reads all full-resolution coordinates (new)
+### P6. Ultra-simplified coordinates at low zoom (LOD)
 
-**Problem:** `fitMap(_ mapView:)` calls `appState.routes.flatMap { $0.coordinates }` —
-flattening all **870 000 original** (non-simplified) coordinates just to find four min/max
-values. This runs on the main thread and is called after every load batch completes.
+**Root cause:** At country/world zoom (span > 2°), the 200-point simplified polylines still
+have segments shorter than 1 pixel. MapKit rasterizes all of them anyway.
 
 **Fix:**
-- Store a `boundingBox: (minLat: Double, maxLat: Double, minLon: Double, maxLon: Double)` on
-  `GPXRoute`, computed at parse time from `simplified` (bounding box is lossless under
-  decimation).
-- `fitMap` reduces to a single pass over 474 `boundingBox` structs — 474 comparisons instead
-  of 870 000 coordinate reads.
+- Pre-compute a second `ultraSimplified` array at parse time with `epsilon = 0.002°` (~220 m).
+  Typical route shrinks from ~200 pts to ~20 pts.
+- In `regionDidChangeAnimated`, when span crosses the 2° threshold, rebuild affected overlays
+  using `ultraSimplified` instead of `simplified`. Reverse when zooming back in.
+- The swap is triggered at most twice per zoom gesture (once crossing the threshold each way).
 
-**Expected gain:** `fitMap` goes from ~870 k iterations to 474. Noticeable on slower machines
-and eliminates a spike at the end of the load batch.
-
----
-
-### D. `regionDidChangeAnimated` calls `setNeedsDisplay` on all 474 renderers (refinement)
-
-**Problem:** Every pan or zoom end currently iterates all overlays, does an O(N) route lookup
-per overlay (see B above), and calls `setNeedsDisplay()` on every renderer. With fix B the
-lookup becomes O(1), but all 474 `setNeedsDisplay()` calls remain.
-
-This is **correct behaviour** (line width changes with zoom), but the implementation can be
-tightened:
-
-**Fix (after B is done):**
-- Use `overlayMap.values` instead of `mapView.overlays` to avoid casting each overlay.
-- Use the `routeIndex` dictionary instead of `routes.first`.
-- Consider calling `mapView.setNeedsDisplay()` (the whole tile) rather than per-renderer if
-  MapKit batches that more efficiently — profile to confirm.
-
-**Expected gain:** Removes the O(N²) lookup overhead. The 474 `setNeedsDisplay()` calls remain
-but are cheap GPU work; the CPU cost drops to a single tight O(N) loop.
+**Expected gain:** At country zoom, rasterized segment count drops 10× again (200 → 20 pts
+per route). GPU tile generation becomes proportionally cheaper.
 
 ---
 
-### E. Mouse event throttling + off-thread hit testing (new)
+### P7. Custom tile overlay — long-term solution
 
-**Problem:** `mouseMoved` fires at the display refresh rate (60–120 Hz). Even after fix A,
-the hit-test (bounding box filter + segment scan) runs synchronously on the main thread before
-each frame. This competes with SwiftUI layout, MapKit tile loading, and list scrolling.
+**Root cause:** All of the above are mitigations. The fundamental problem is that
+`MKPolylineRenderer` renders each route separately into MapKit's tile system. There is no
+batch path.
 
-**Fix (two-part):**
-1. **Throttle:** Skip `mouseMoved` events if a hit-test is already queued. A simple
-   `var pendingHitTest = false` flag on the coordinator is enough — set it on entry,
-   clear it on completion.
-2. **Background dispatch:** Move the `nearestRoute` computation to a dedicated serial queue
-   (e.g. `DispatchQueue(label: "gpx.hittest", qos: .userInteractive)`). Only dispatch back to
-   main to write `hoveredRouteId`.
+**Fix:** Replace all `MKPolyline` overlays with a single `MKTileOverlay` subclass that
+rasterizes all routes using Core Graphics directly into 256×256 tile images.
 
-**Expected gain:** Main thread is never blocked by hit-testing. At 120 Hz, skipped frames cost
-nothing; the hover still updates faster than the eye can track.
+- MapKit caches rasterized tiles; pan is just compositing pre-rendered bitmaps — essentially
+  free.
+- Zoom triggers tile regeneration at the new scale, but only for the visible viewport.
+- Selected/hovered routes are drawn on top using a normal `MKPolylineRenderer` (1–2 overlays).
+- Tile invalidation on route add/remove: call `reloadData()` on the tile overlay.
+
+This is the largest refactor (~200 lines new code, replace overlay management entirely) but
+eliminates the O(N) overlay overhead permanently. Pan becomes native-speed regardless of
+route count.
 
 ---
 
-### F. Virtual list in the sidebar (was #6)
+## Other remaining items
 
-**Problem:** `LazyVStack` inside `ScrollView` does not fully defer view creation. SwiftUI
-still measures and lays out all 474 rows when the list first appears, consuming CPU and memory
-proportional to N.
+### E. Mouse event throttling + off-thread hit testing
+
+**Problem:** `mouseMoved` fires at 60–120 Hz. The bounding-box filter + segment scan
+(now fast after A) still runs on the main thread, competing with MapKit tile compositing
+during pan.
 
 **Fix:**
-- Replace `ScrollView + LazyVStack` with `List`. On macOS 13+ `List` uses true NSTableView
-  cell reuse under the hood — only visible rows (~20) are live at any time.
-- The `ScrollViewReader` / `.scrollTo` mechanism works identically with `List`.
+- Throttle: skip events if a hit-test is already in flight (`var pendingHitTest = false`).
+- Dispatch `nearestRoute` to a dedicated serial queue (`qos: .userInteractive`), dispatch
+  back to main only to write `hoveredRouteId`.
 
-**Expected gain:** Initial list render and memory cost drop from O(N) to O(visible rows).
-Sidebar becomes instant regardless of route count.
-
----
-
-### G. Haversine distance replaces CLLocation allocs (was #7)
-
-**Problem:** `GPXParser` allocates one `CLLocation` object per point pair to call
-`distance(from:)`. For a 28 000-point file this is 28 000 object allocations + ARC overhead,
-all during background parsing.
-
-**Fix:**
-- Replace with the haversine formula operating directly on `Double` lat/lon:
-  ```swift
-  func haversine(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Double {
-      let R = 6_371_000.0
-      let dLat = (b.latitude  - a.latitude)  * .pi / 180
-      let dLon = (b.longitude - a.longitude) * .pi / 180
-      let sinLat = sin(dLat / 2), sinLon = sin(dLon / 2)
-      let h = sinLat*sinLat + cos(a.latitude * .pi/180) * cos(b.latitude * .pi/180) * sinLon*sinLon
-      return 2 * R * asin(min(1, sqrt(h)))
-  }
-  ```
-- No allocations, same accuracy, compiler can auto-vectorise the loop.
-
-**Expected gain:** Parse time for large files reduced ~30–40%. More relevant as dataset grows.
+**Expected gain:** Main thread never stalls on hit-testing during map interaction.
 
 ---
 
-### H. On-demand full-resolution coordinates (was #8 — lower priority)
+### F. Virtual list in the sidebar
 
-**Problem:** All 870 000 original `coordinates` are held in memory even though the map only
-ever renders `simplified`. The full arrays are only used for `handleZoomToRoute` (bounding
-box fit), which after fix C only needs the bounding box anyway.
+**Problem:** `LazyVStack` in `ScrollView` still creates all 474 rows on first render.
 
-**Fix (after C):**
-- Remove `coordinates` from `GPXRoute`. Keep only `simplified` and `boundingBox`.
-- Re-parse `coordinates` on demand (or use `mmap`) only if a "show full resolution" feature
-  is added later.
+**Fix:** Replace with `List` (true `NSTableView` cell reuse on macOS 13+).
 
-**Expected gain:** ~12 MB of coordinate data freed (~870 k × 16 bytes). Useful if dataset
-grows to thousands of files or on low-memory machines.
+**Expected gain:** Sidebar render and memory cost drop from O(N) to O(visible rows).
 
 ---
 
-### I. Cluster/hide overlays at low zoom (was #9)
+### G. Haversine distance replaces `CLLocation` allocations
 
-**Problem:** At world/country zoom, 474 polylines collapsed to near-zero pixel size produce
-GPU overdraw with no visual value, and MapKit still processes all tile intersections for them.
+**Fix:** Replace `CLLocation.distance(from:)` with the haversine formula on `Double`.
+No allocations, same accuracy.
 
-**Fix:**
-- In `regionDidChangeAnimated`, when span > threshold (e.g. 8°), hide overlays whose
-  bounding box diagonal is < 2 px at the current scale.
-- Re-show them when the user zooms back in.
-- Use `MKOverlay.canReplaceMapContent` = false and swap between a thin summary polyline and
-  the full simplified one.
-
-**Expected gain:** GPU load and MapKit tile-intersection work drop significantly at low zoom.
-Most impactful when routes are geographically spread (e.g. one per city across a country).
+**Expected gain:** ~30–40% faster parse for large files.
 
 ---
 
-## Updated priority order
+### H. Drop full-resolution `coordinates` array
+
+**Fix (after C):** Remove `GPXRoute.coordinates`; store only `simplified` + `boundingBox`.
+Full coords are no longer used anywhere after the `fitMap` refactor.
+
+**Expected gain:** ~12 MB freed (~870 k × 16 bytes).
+
+---
+
+## Priority order
 
 | Priority | Item | Effort | Impact |
 |----------|------|--------|--------|
-| 1 | **B** Route lookup dictionary | Low | High — removes O(N²) in two hot paths |
-| 2 | **C** Bounding box on GPXRoute | Low | Medium — eliminates 870k coord scan on fit |
-| 3 | **A** Spatial index for hover | Medium | Very high — kills remaining main-thread hittest spike |
-| 4 | **E** Mouse throttle + off-thread hittest | Low | High — main thread never blocks on mouse |
-| 5 | **D** `regionDidChangeAnimated` tighten | Low | Medium — only effective after B |
-| 6 | **F** Virtual list | Medium | Medium — sidebar with 474+ routes |
-| 7 | **G** Haversine distance | Low | Low-medium — parse speed |
-| 8 | **H** Drop full coordinates | Low (after C) | Low-medium — memory |
-| 9 | **I** Cluster at low zoom | High | Low-medium — GPU polish |
+| 1 | **P1** Skip renderer refresh on pan | Very low | High — zero work per drag |
+| 2 | **P2** Visible-region filter in `regionDidChangeAnimated` | Low | High — only refresh visible routes |
+| 3 | **P3** Cache renderer references | Low | Medium — removes 474 API calls per zoom |
+| 4 | **P4** `MKMultiPolyline` grouping | Medium | Very high — 474 → 12 overlays structurally |
+| 5 | **E** Mouse throttle + off-thread hittest | Low | High — clean up main thread |
+| 6 | **P5** Viewport culling | Medium | High — complements P4 dynamically |
+| 7 | **P6** Ultra-simplified LOD | Low | Medium — fewer GPU segments at low zoom |
+| 8 | **F** Virtual list | Medium | Medium — sidebar |
+| 9 | **G** Haversine distance | Low | Low-medium — parse speed |
+| 10 | **H** Drop full coordinates | Low | Low-medium — memory |
+| 11 | **P7** Custom tile overlay | High | Very high — permanent fix, big refactor |
 
-B and C are cheap wins that unblock the bigger gains in A and D. Do B → C → A → E in order.
+P1–P3 are all cheap and can be done together in one pass. P4 is the highest-leverage
+structural fix. P7 is the endgame if P4 is still not smooth enough.

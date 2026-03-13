@@ -28,6 +28,26 @@ class GPXParser: NSObject, XMLParserDelegate {
         return f
     }()
 
+    // MARK: - Public API
+
+    /// Parse with cache: returns a cached result if the source file is unchanged,
+    /// otherwise parses from scratch and writes a new cache entry.
+    static func cachedParse(url: URL) -> ParsedGPX? {
+        guard let modDate = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+                .contentModificationDate
+        else { return parse(url: url) }
+
+        let cachePath = cacheDir.appendingPathComponent(url.lastPathComponent + ".cache")
+
+        if let cached = readCache(at: cachePath, expectedModDate: modDate) {
+            return cached
+        }
+
+        guard let result = parse(url: url) else { return nil }
+        writeCache(result, to: cachePath, modDate: modDate)
+        return result
+    }
+
     static func parse(url: URL) -> ParsedGPX? {
         guard let data = try? Data(contentsOf: url) else { return nil }
         let instance = GPXParser()
@@ -48,6 +68,129 @@ class GPXParser: NSObject, XMLParserDelegate {
             simplified: simplified,
             startTime: instance.times.first,
             endTime: instance.times.last,
+            totalDistance: dist
+        )
+    }
+
+    // MARK: - Cache
+
+    private static let cacheDir: URL = {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("GPXViewer", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    // Binary cache format (little-endian):
+    //   4 bytes  magic "GPXC"
+    //   1 byte   version (1)
+    //   8 bytes  modDate (Double, timeIntervalSinceReferenceDate)
+    //   8 bytes  totalDistance (Double)
+    //   1 byte   hasStartTime flag
+    //   8 bytes  startTime if flag == 1
+    //   1 byte   hasEndTime flag
+    //   8 bytes  endTime if flag == 1
+    //   4 bytes  simplified point count (UInt32)
+    //   N×16     simplified CLLocationCoordinate2D (lat Double, lon Double)
+    //   4 bytes  full point count (UInt32)
+    //   N×16     full CLLocationCoordinate2D
+
+    private static let magic: UInt32 = 0x43585047  // "GPXC" little-endian
+
+    private static func writeCache(_ result: ParsedGPX, to path: URL, modDate: Date) {
+        var data = Data()
+
+        func appendValue<T>(_ value: T) {
+            var v = value
+            withUnsafeBytes(of: &v) { data.append(contentsOf: $0) }
+        }
+
+        appendValue(magic)
+        appendValue(UInt8(1))  // version
+        appendValue(modDate.timeIntervalSinceReferenceDate)
+        appendValue(result.totalDistance)
+
+        if let t = result.startTime {
+            appendValue(UInt8(1))
+            appendValue(t.timeIntervalSinceReferenceDate)
+        } else {
+            appendValue(UInt8(0))
+        }
+        if let t = result.endTime {
+            appendValue(UInt8(1))
+            appendValue(t.timeIntervalSinceReferenceDate)
+        } else {
+            appendValue(UInt8(0))
+        }
+
+        appendCoords(result.simplified, into: &data)
+        appendCoords(result.coordinates, into: &data)
+
+        try? data.write(to: path, options: .atomic)
+    }
+
+    private static func appendCoords(_ coords: [CLLocationCoordinate2D], into data: inout Data) {
+        var count = UInt32(coords.count)
+        withUnsafeBytes(of: &count) { data.append(contentsOf: $0) }
+        coords.withUnsafeBytes { data.append(contentsOf: $0) }
+    }
+
+    private static func readCache(at path: URL, expectedModDate: Date) -> ParsedGPX? {
+        guard let data = try? Data(contentsOf: path, options: .mappedIfSafe),
+              data.count > 22
+        else { return nil }
+
+        var offset = 0
+
+        func read<T: FixedWidthInteger>(_ type: T.Type) -> T? {
+            let size = MemoryLayout<T>.size
+            guard offset + size <= data.count else { return nil }
+            let val = data[offset..<offset + size].withUnsafeBytes { $0.loadUnaligned(as: T.self) }
+            offset += size
+            return val
+        }
+        func readDouble() -> Double? {
+            guard offset + 8 <= data.count else { return nil }
+            let val = data[offset..<offset + 8].withUnsafeBytes { $0.loadUnaligned(as: Double.self) }
+            offset += 8
+            return val
+        }
+        func readOptionalDate() -> Date? {
+            guard let flag = read(UInt8.self) else { return nil }
+            guard flag == 1 else { return nil }
+            guard let t = readDouble() else { return nil }
+            return Date(timeIntervalSinceReferenceDate: t)
+        }
+        func readCoords() -> [CLLocationCoordinate2D]? {
+            guard let count = read(UInt32.self) else { return nil }
+            let byteCount = Int(count) * MemoryLayout<CLLocationCoordinate2D>.stride
+            guard offset + byteCount <= data.count else { return nil }
+            let coords = data[offset..<offset + byteCount].withUnsafeBytes {
+                Array($0.bindMemory(to: CLLocationCoordinate2D.self))
+            }
+            offset += byteCount
+            return coords
+        }
+
+        guard read(UInt32.self) == magic,
+              read(UInt8.self) == 1,
+              let storedInterval = readDouble(),
+              Date(timeIntervalSinceReferenceDate: storedInterval) == expectedModDate,
+              let dist      = readDouble()
+        else { return nil }
+
+        let startTime = readOptionalDate()
+        let endTime   = readOptionalDate()
+
+        guard let simplified = readCoords(),
+              let full       = readCoords()
+        else { return nil }
+
+        return ParsedGPX(
+            coordinates: full,
+            simplified: simplified,
+            startTime: startTime,
+            endTime: endTime,
             totalDistance: dist
         )
     }
