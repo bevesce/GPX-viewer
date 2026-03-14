@@ -45,12 +45,24 @@ struct RouteListView: View {
     @State private var searchText = ""
 
     private var filteredRoutes: [GPXRoute] {
-        guard !searchText.isEmpty else { return appState.routes }
-        let q = searchText.lowercased()
-        return appState.routes.filter { route in
-            if route.fileName.lowercased().contains(q) { return true }
-            if let date = route.startTime, dateFormatter.string(from: date).contains(q) { return true }
-            return false
+        let base: [GPXRoute]
+        if searchText.isEmpty {
+            base = appState.routes
+        } else {
+            let q = searchText.lowercased()
+            base = appState.routes.filter { route in
+                if route.fileName.lowercased().contains(q) { return true }
+                if let date = route.startTime, dateFormatter.string(from: date).contains(q) { return true }
+                return false
+            }
+        }
+        return base.sorted { lhs, rhs in
+            switch (lhs.startTime, rhs.startTime) {
+            case (let a?, let b?): return a > b
+            case (nil, _?): return false
+            case (_?, nil): return true
+            case (nil, nil): return false
+            }
         }
     }
 
@@ -107,7 +119,7 @@ struct RouteListView: View {
             Text("No routes loaded")
                 .font(.headline)
                 .foregroundColor(.secondary)
-            Text("Drop GPX files here\nor use File → Open")
+            Text("Drop GPX files here\nor use File \u{2192} Open")
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -130,7 +142,7 @@ struct RouteListView: View {
                             .padding(.top, 32)
                     } else {
                         ForEach(routes) { route in
-                            RouteRowView(route: route)
+                            RouteRowView(route: route, allRoutes: routes)
                                 .id(route.id)
                             Divider().padding(.leading, 32)
                         }
@@ -151,10 +163,11 @@ struct RouteListView: View {
 
 struct RouteRowView: View {
     let route: GPXRoute
+    let allRoutes: [GPXRoute]
     @EnvironmentObject var appState: AppState
     @State private var isHovering = false
 
-    private var isSelected: Bool { appState.selectedRouteId == route.id }
+    private var isSelected: Bool { appState.selectedRouteIds.contains(route.id) }
     private var isHighlighted: Bool { appState.hoveredRouteId == route.id }
 
     var body: some View {
@@ -178,19 +191,6 @@ struct RouteRowView: View {
                         .foregroundColor(route.color.swiftUI)
                         .font(.system(size: 14))
                 }
-
-                Button(action: {
-                    withAnimation(.easeOut(duration: 0.15)) {
-                        appState.removeRoute(id: route.id)
-                    }
-                }) {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(.secondary)
-                }
-                .buttonStyle(.plain)
-                .opacity(isHovering || isSelected ? 1 : 0)
-                .help("Remove route")
             }
 
             // Stats row
@@ -211,7 +211,8 @@ struct RouteRowView: View {
             NotificationCenter.default.post(name: .zoomToRoute, object: route.id)
         }
         .onTapGesture(count: 1) {
-            appState.selectedRouteId = (appState.selectedRouteId == route.id) ? nil : route.id
+            let mods = NSEvent.modifierFlags
+            appState.handleListTap(route: route, modifiers: mods, visibleRoutes: allRoutes)
         }
         .contextMenu {
             Button("Zoom to Route") {
@@ -220,10 +221,6 @@ struct RouteRowView: View {
             Button("Remove") {
                 appState.removeRoute(id: route.id)
             }
-            Button("Deselect") {
-                appState.selectedRouteId = nil
-            }
-            .disabled(appState.selectedRouteId != route.id)
         }
     }
 
@@ -233,10 +230,10 @@ struct RouteRowView: View {
             if let start = route.startTime {
                 HStack(spacing: 4) {
                     Text(dateFormatter.string(from: start))
-                    Text("·")
+                    Text("\u{00B7}")
                     Text(timeFormatter.string(from: start))
                     if let end = route.endTime, end != start {
-                        Text("–")
+                        Text("\u{2013}")
                         Text(timeFormatter.string(from: end))
                     }
                 }

@@ -4,9 +4,12 @@ import Combine
 
 class AppState: ObservableObject {
     @Published var routes: [GPXRoute] = []
-    @Published var selectedRouteId: UUID? = nil
+    @Published var selectedRouteIds: Set<UUID> = []
     @Published var hoveredRouteId: UUID? = nil
     @Published var loadingProgress: Double? = nil  // nil = idle, 0–1 = loading
+
+    // Anchor for shift-click range selection — not published (no re-render needed)
+    var lastClickedRouteId: UUID? = nil
 
     private let loadQueue = DispatchQueue(label: "gpx.load", qos: .userInitiated)
     private static let savedURLsKey = "savedRouteURLs"
@@ -118,9 +121,50 @@ class AppState: ObservableObject {
 
     func removeRoute(id: UUID) {
         routes.removeAll { $0.id == id }
-        if selectedRouteId == id { selectedRouteId = nil }
+        selectedRouteIds.remove(id)
+        if lastClickedRouteId == id { lastClickedRouteId = nil }
         if hoveredRouteId == id { hoveredRouteId = nil }
         persistRouteURLs()
+    }
+
+    func removeSelectedRoutes() {
+        let ids = selectedRouteIds
+        routes.removeAll { ids.contains($0.id) }
+        selectedRouteIds = []
+        lastClickedRouteId = nil
+        if let h = hoveredRouteId, ids.contains(h) { hoveredRouteId = nil }
+        persistRouteURLs()
+    }
+
+    func handleListTap(route: GPXRoute, modifiers: NSEvent.ModifierFlags, visibleRoutes: [GPXRoute]) {
+        if modifiers.contains(.shift) {
+            guard let anchor = lastClickedRouteId,
+                  let anchorIdx = visibleRoutes.firstIndex(where: { $0.id == anchor }),
+                  let currentIdx = visibleRoutes.firstIndex(where: { $0.id == route.id }) else {
+                selectedRouteIds = [route.id]
+                lastClickedRouteId = route.id
+                return
+            }
+            let lo = min(anchorIdx, currentIdx)
+            let hi = max(anchorIdx, currentIdx)
+            selectedRouteIds = Set(visibleRoutes[lo...hi].map { $0.id })
+            // Don't update lastClickedRouteId on shift-click
+        } else if modifiers.contains(.command) {
+            if selectedRouteIds.contains(route.id) {
+                selectedRouteIds.remove(route.id)
+            } else {
+                selectedRouteIds.insert(route.id)
+            }
+            lastClickedRouteId = route.id
+        } else {
+            // Plain click: select only this route, or deselect if it's the only one
+            if selectedRouteIds == [route.id] {
+                selectedRouteIds = []
+            } else {
+                selectedRouteIds = [route.id]
+            }
+            lastClickedRouteId = route.id
+        }
     }
 
     func openFilePicker() {

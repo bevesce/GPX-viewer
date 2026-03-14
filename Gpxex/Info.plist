@@ -20,8 +20,12 @@
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Gpxex</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>GPX Viewer uses your location to zoom the map to your current position.</string>
 	<key>NSPrincipalClass</key>
 	<string>NSApplication</string>
 	<key>UTImportedTypeDeclarations</key>

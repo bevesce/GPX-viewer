@@ -1,6 +1,7 @@
 import SwiftUI
 import MapKit
 import AppKit
+import CoreLocation
 
 // MARK: - HoverableMapView
 
@@ -46,7 +47,7 @@ final class HoverableMapView: MKMapView {
     override func mouseUp(with event: NSEvent) {
         super.mouseUp(with: event)
         if !didDrag, let pt = mouseDownPoint {
-            coordinator?.handleClick(at: pt, in: self, clickCount: event.clickCount)
+            coordinator?.handleClick(at: pt, in: self, event: event)
         }
         mouseDownPoint = nil
         didDrag = false
@@ -55,12 +56,12 @@ final class HoverableMapView: MKMapView {
 
 // MARK: - Coordinator
 
-final class MapViewCoordinator: NSObject, MKMapViewDelegate {
+final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDelegate {
     let appState: AppState
     weak var mapView: HoverableMapView?
 
     var lastRouteIds: [UUID] = []
-    var lastSelectedId: UUID? = nil
+    var lastSelectedIds: Set<UUID> = []
     var lastHoveredId: UUID? = nil
 
     // Route data lookup
@@ -84,6 +85,13 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
 
     // P1: last rendered span — skip renderer refresh when span is unchanged (pure pan)
     private var currentSpan: Double = 0.05
+
+    // Location
+    private lazy var locationManager: CLLocationManager = {
+        let mgr = CLLocationManager()
+        mgr.delegate = self
+        return mgr
+    }()
 
     init(appState: AppState) {
         self.appState = appState
@@ -158,10 +166,11 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
     // MARK: Active state (hover / selection)
 
     func updateActiveState(on mapView: MKMapView) {
-        let newActiveIds = Set([appState.selectedRouteId, appState.hoveredRouteId].compactMap { $0 })
+        let hoveredSet: Set<UUID> = appState.hoveredRouteId.map { [$0] } ?? []
+        let newActiveIds = appState.selectedRouteIds.union(hoveredSet)
         guard newActiveIds != activeIds else {
-            lastSelectedId = appState.selectedRouteId
-            lastHoveredId  = appState.hoveredRouteId
+            lastSelectedIds = appState.selectedRouteIds
+            lastHoveredId   = appState.hoveredRouteId
             return
         }
 
@@ -186,8 +195,8 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
             mapView.addOverlay(poly, level: .aboveRoads)
         }
 
-        lastSelectedId = appState.selectedRouteId
-        lastHoveredId  = appState.hoveredRouteId
+        lastSelectedIds = appState.selectedRouteIds
+        lastHoveredId   = appState.hoveredRouteId
     }
 
     // MARK: Styling
@@ -266,7 +275,7 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
             renderer.setNeedsDisplay()
         }
 
-        // Active renderers are always few (0–2); refresh unconditionally
+        // Active renderers are always few; refresh unconditionally
         for renderer in activeRenderers.values {
             renderer.lineWidth = activeWidth
             renderer.setNeedsDisplay()
@@ -292,17 +301,32 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
         }
     }
 
-    func handleClick(at point: CGPoint, in mapView: MKMapView, clickCount: Int) {
+    func handleClick(at point: CGPoint, in mapView: MKMapView, event: NSEvent) {
         let routeId = nearestRoute(to: point, in: mapView, threshold: 12)
+        let mods = event.modifierFlags
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
-            if self.appState.selectedRouteId == routeId {
-                self.appState.selectedRouteId = nil
-            } else {
-                self.appState.selectedRouteId = routeId
-                if let routeId {
+            if let routeId {
+                if mods.contains(.command) {
+                    if self.appState.selectedRouteIds.contains(routeId) {
+                        self.appState.selectedRouteIds.remove(routeId)
+                    } else {
+                        self.appState.selectedRouteIds.insert(routeId)
+                        self.appState.lastClickedRouteId = routeId
+                    }
+                } else {
+                    if self.appState.selectedRouteIds == [routeId] {
+                        self.appState.selectedRouteIds = []
+                    } else {
+                        self.appState.selectedRouteIds = [routeId]
+                        self.appState.lastClickedRouteId = routeId
+                    }
+                }
+                if !self.appState.selectedRouteIds.isEmpty {
                     NotificationCenter.default.post(name: .scrollToRoute, object: routeId)
                 }
+            } else if !mods.contains(.command) {
+                self.appState.selectedRouteIds = []
             }
         }
     }
@@ -374,6 +398,42 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
         applyRegion(mapView, minLat: b.minLat, maxLat: b.maxLat, minLon: b.minLon, maxLon: b.maxLon)
     }
 
+    @objc func handleZoomToUserLocation() {
+        guard let mapView else { return }
+        let status = locationManager.authorizationStatus
+        switch status {
+        case .notDetermined:
+            locationManager.requestWhenInUseAuthorization()
+        case .authorized, .authorizedAlways:
+            mapView.showsUserLocation = true
+            if let location = mapView.userLocation.location {
+                let region = MKCoordinateRegion(
+                    center: location.coordinate,
+                    span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+                )
+                mapView.setRegion(region, animated: true)
+            }
+        default:
+            break
+        }
+    }
+
+    // MARK: CLLocationManagerDelegate
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        let status = manager.authorizationStatus
+        if status == .authorized || status == .authorizedAlways {
+            mapView?.showsUserLocation = true
+            if let location = mapView?.userLocation.location {
+                let region = MKCoordinateRegion(
+                    center: location.coordinate,
+                    span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
+                )
+                mapView?.setRegion(region, animated: true)
+            }
+        }
+    }
+
     private func applyRegion(_ mapView: MKMapView,
                               minLat: Double, maxLat: Double,
                               minLon: Double, maxLon: Double) {
@@ -421,6 +481,12 @@ struct MapView: NSViewRepresentable {
             name: .zoomToRoute,
             object: nil
         )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(MapViewCoordinator.handleZoomToUserLocation),
+            name: .zoomToUserLocation,
+            object: nil
+        )
         return mapView
     }
 
@@ -430,7 +496,7 @@ struct MapView: NSViewRepresentable {
 
         if currentIds != coord.lastRouteIds {
             coord.updateOverlays(on: mapView)
-        } else if appState.selectedRouteId != coord.lastSelectedId
+        } else if appState.selectedRouteIds != coord.lastSelectedIds
                     || appState.hoveredRouteId != coord.lastHoveredId {
             coord.updateActiveState(on: mapView)
         }

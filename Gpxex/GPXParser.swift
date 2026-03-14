@@ -76,7 +76,7 @@ class GPXParser: NSObject, XMLParserDelegate {
 
     private static let cacheDir: URL = {
         let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        let dir = base.appendingPathComponent("GPXViewer", isDirectory: true)
+        let dir = base.appendingPathComponent("Gpxex", isDirectory: true)
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         return dir
     }()

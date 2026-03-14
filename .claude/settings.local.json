@@ -7,7 +7,11 @@
       "Bash(find \"/Users/piotrek/Library/Mobile Documents/com~apple~CloudDocs/AP/GPX/all\" -type f -name \"*.gpx\" -exec ls -lhS {} \\\\; | head -10)",
       "Bash(find \"/Users/piotrek/Library/Mobile Documents/com~apple~CloudDocs/AP/GPX/all\" -type f -name \"*.gpx\" -exec du -h {})",
       "Bash(find \"/Users/piotrek/Library/Mobile Documents/com~apple~CloudDocs/AP/GPX/all\" -type f -name \"*.gpx\" -exec du -b {})",
-      "Bash(find \"/Users/piotrek/Library/Mobile Documents/com~apple~CloudDocs/AP/GPX/all\" -type f -name \"*.gpx\" -exec stat -f '%z' {})"
+      "Bash(find \"/Users/piotrek/Library/Mobile Documents/com~apple~CloudDocs/AP/GPX/all\" -type f -name \"*.gpx\" -exec stat -f '%z' {})",
+      "Bash(grep -r \"GPXViewer\\\\|GPX Viewer\\\\|GPX-viewer\\\\|gpx-viewer\\\\|gpxviewer\" /Users/piotrek/Projects/GPX-viewer/GPXViewer/ --include=\"*.swift\" --include=\"*.plist\" -l 2>/dev/null; echo \"---\"; grep -r \"GPXViewer\\\\|GPX Viewer\" /Users/piotrek/Projects/GPX-viewer/GPXViewer.xcodeproj/project.pbxproj | head -30)",
+      "Bash(git mv:*)",
+      "Bash(perl:*)",
+      "Bash(grep:*)"
     ]
   }
 }

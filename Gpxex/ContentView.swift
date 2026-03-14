@@ -34,16 +34,14 @@ struct ContentView: View {
                         )
                 }
 
-                // Toolbar overlay
-                if !appState.routes.isEmpty {
-                    VStack {
-                        HStack {
-                            Spacer()
-                            mapToolbar
-                                .padding(10)
-                        }
+                // Map toolbar — top-right
+                VStack {
+                    HStack {
                         Spacer()
+                        mapToolbar
+                            .padding(10)
                     }
+                    Spacer()
                 }
 
                 // Loading progress overlay (bottom-left)
@@ -70,22 +68,18 @@ struct ContentView: View {
     }
 
     private var mapToolbar: some View {
-        Button(action: fitAll) {
-            Image(systemName: "arrow.up.left.and.arrow.down.right")
+        Button(action: {
+            NotificationCenter.default.post(name: .zoomToUserLocation, object: nil)
+        }) {
+            Image(systemName: "location.fill")
                 .font(.system(size: 12))
         }
         .buttonStyle(.bordered)
         .controlSize(.small)
-        .help("Fit map to show all routes")
+        .help("Zoom to current location")
         .padding(6)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
         .shadow(radius: 4)
-    }
-
-    private func fitAll() {
-        // Trigger a re-fit by briefly resetting the route IDs in coordinator
-        // We do this by posting a notification the coordinator listens to
-        NotificationCenter.default.post(name: .fitAllRoutes, object: nil)
     }
 
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
@@ -112,7 +106,8 @@ struct ContentView: View {
 }
 
 extension Notification.Name {
-    static let fitAllRoutes  = Notification.Name("fitAllRoutes")
-    static let zoomToRoute   = Notification.Name("zoomToRoute")
-    static let scrollToRoute = Notification.Name("scrollToRoute")
+    static let fitAllRoutes      = Notification.Name("fitAllRoutes")
+    static let zoomToRoute       = Notification.Name("zoomToRoute")
+    static let scrollToRoute     = Notification.Name("scrollToRoute")
+    static let zoomToUserLocation = Notification.Name("zoomToUserLocation")
 }

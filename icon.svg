@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- Background gradient: deep blue to dark teal -->
+    <linearGradient id="bg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F1F3D"/>
+      <stop offset="100%" stop-color="#0A3040"/>
+    </linearGradient>
+
+    <!-- Terrain fill -->
+    <linearGradient id="terrainGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#1A4A2E" stop-opacity="0.8"/>
+      <stop offset="100%" stop-color="#0D2B1A" stop-opacity="1"/>
+    </linearGradient>
+
+    <!-- Route glow -->
+    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Subtle grid pattern -->
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#ffffff" stroke-width="0.3" stroke-opacity="0.07"/>
+    </pattern>
+
+    <!-- Dot gradient for waypoints -->
+    <radialGradient id="dotGrad" cx="50%" cy="30%" r="50%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="100%" stop-color="#00D4FF"/>
+    </radialGradient>
+  </defs>
+
+  <!-- Rounded rect background -->
+  <rect x="0" y="0" width="512" height="512" rx="110" ry="110" fill="url(#bg)"/>
+
+  <!-- Grid overlay -->
+  <rect x="0" y="0" width="512" height="512" rx="110" ry="110" fill="url(#grid)"/>
+
+  <!-- Terrain silhouette -->
+  <path d="M 0 380
+           L 50 310
+           L 100 340
+           L 155 260
+           L 200 300
+           L 255 200
+           L 310 270
+           L 355 230
+           L 410 285
+           L 460 250
+           L 512 280
+           L 512 512
+           L 0 512
+           Z"
+        fill="url(#terrainGrad)"/>
+
+  <!-- Lighter terrain ridge -->
+  <path d="M 0 380
+           L 50 310
+           L 100 340
+           L 155 260
+           L 200 300
+           L 255 200
+           L 310 270
+           L 355 230
+           L 410 285
+           L 460 250
+           L 512 280"
+        fill="none" stroke="#2A6040" stroke-width="2" stroke-opacity="0.6"/>
+
+  <!-- GPX route track (glowing teal line) -->
+  <polyline
+    points="
+      90,370
+      130,310
+      160,325
+      195,265
+      230,290
+      256,220
+      282,255
+      310,240
+      340,265
+      375,235
+      410,258
+      445,230
+    "
+    fill="none"
+    stroke="#00D4FF"
+    stroke-width="7"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    stroke-opacity="0.25"
+    filter="url(#glow)"
+  />
+  <polyline
+    points="
+      90,370
+      130,310
+      160,325
+      195,265
+      230,290
+      256,220
+      282,255
+      310,240
+      340,265
+      375,235
+      410,258
+      445,230
+    "
+    fill="none"
+    stroke="#00D4FF"
+    stroke-width="4"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    filter="url(#glow)"
+  />
+
+  <!-- Waypoint dots -->
+  <circle cx="90"  cy="370" r="7" fill="url(#dotGrad)" filter="url(#glow)"/>
+  <circle cx="195" cy="265" r="6" fill="url(#dotGrad)" filter="url(#glow)"/>
+  <circle cx="256" cy="220" r="8" fill="url(#dotGrad)" filter="url(#glow)"/>
+  <circle cx="375" cy="235" r="6" fill="url(#dotGrad)" filter="url(#glow)"/>
+  <circle cx="445" cy="230" r="7" fill="url(#dotGrad)" filter="url(#glow)"/>
+
+  <!-- Start marker (flag pin) at first waypoint -->
+  <circle cx="90" cy="370" r="11" fill="none" stroke="#00D4FF" stroke-width="2.5" stroke-opacity="0.7"/>
+
+  <!-- Summit marker at peak waypoint (256, 220) -->
+  <path d="M 256 185 L 268 215 L 244 215 Z"
+        fill="#FFD700" stroke="#FFB800" stroke-width="1.5"
+        filter="url(#glow)"/>
+
+  <!-- Finish flag at last waypoint -->
+  <line x1="445" y1="230" x2="445" y2="200" stroke="#00D4FF" stroke-width="2.5" stroke-linecap="round"/>
+  <polygon points="445,200 463,207 445,214" fill="#00D4FF" opacity="0.9"/>
+
+  <!-- Subtle vignette -->
+  <radialGradient id="vignette" cx="50%" cy="50%" r="70%">
+    <stop offset="60%" stop-color="#000000" stop-opacity="0"/>
+    <stop offset="100%" stop-color="#000000" stop-opacity="0.45"/>
+  </radialGradient>
+  <rect x="0" y="0" width="512" height="512" rx="110" ry="110" fill="url(#vignette)"/>
+</svg>

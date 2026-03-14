@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		BF0000000000000000000001 /* GPXViewerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0000000000000000000011 /* GPXViewerApp.swift */; };
+		BF0000000000000000000001 /* GpxexApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0000000000000000000011 /* GpxexApp.swift */; };
 		BF0000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0000000000000000000012 /* ContentView.swift */; };
 		BF0000000000000000000003 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0000000000000000000013 /* AppState.swift */; };
 		BF0000000000000000000004 /* GPXRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0000000000000000000014 /* GPXRoute.swift */; };
@@ -19,7 +19,7 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		BF0000000000000000000011 /* GPXViewerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPXViewerApp.swift; sourceTree = "<group>"; };
+		BF0000000000000000000011 /* GpxexApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GpxexApp.swift; sourceTree = "<group>"; };
 		BF0000000000000000000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		BF0000000000000000000013 /* AppState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppState.swift; sourceTree = "<group>"; };
 		BF0000000000000000000014 /* GPXRoute.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GPXRoute.swift; sourceTree = "<group>"; };
@@ -29,8 +29,8 @@
 		BF0000000000000000000018 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		BF0000000000000000000019 /* MapKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MapKit.framework; path = System/Library/Frameworks/MapKit.framework; sourceTree = SDKROOT; };
 		BF000000000000000000001A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		BF000000000000000000001B /* GPXViewer.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GPXViewer.entitlements; sourceTree = "<group>"; };
-		BF000000000000000000001C /* GPXViewer.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GPXViewer.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		BF000000000000000000001B /* Gpxex.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Gpxex.entitlements; sourceTree = "<group>"; };
+		BF000000000000000000001C /* Gpxex.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Gpxex.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -48,16 +48,16 @@
 		BF0000000000000000000021 /* = */ = {
 			isa = PBXGroup;
 			children = (
-				BF0000000000000000000022 /* GPXViewer */,
+				BF0000000000000000000022 /* Gpxex */,
 				BF0000000000000000000024 /* Frameworks */,
 				BF0000000000000000000023 /* Products */,
 			);
 			sourceTree = "<group>";
 		};
-		BF0000000000000000000022 /* GPXViewer */ = {
+		BF0000000000000000000022 /* Gpxex */ = {
 			isa = PBXGroup;
 			children = (
-				BF0000000000000000000011 /* GPXViewerApp.swift */,
+				BF0000000000000000000011 /* GpxexApp.swift */,
 				BF0000000000000000000012 /* ContentView.swift */,
 				BF0000000000000000000013 /* AppState.swift */,
 				BF0000000000000000000014 /* GPXRoute.swift */,
@@ -66,15 +66,15 @@
 				BF0000000000000000000017 /* MapView.swift */,
 				BF0000000000000000000018 /* Assets.xcassets */,
 				BF000000000000000000001A /* Info.plist */,
-				BF000000000000000000001B /* GPXViewer.entitlements */,
+				BF000000000000000000001B /* Gpxex.entitlements */,
 			);
-			path = GPXViewer;
+			path = Gpxex;
 			sourceTree = "<group>";
 		};
 		BF0000000000000000000023 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				BF000000000000000000001C /* GPXViewer.app */,
+				BF000000000000000000001C /* Gpxex.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -90,9 +90,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		BF0000000000000000000041 /* GPXViewer */ = {
+		BF0000000000000000000041 /* Gpxex */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = BF0000000000000000000056 /* Build configuration list for PBXNativeTarget "GPXViewer" */;
+			buildConfigurationList = BF0000000000000000000056 /* Build configuration list for PBXNativeTarget "Gpxex" */;
 			buildPhases = (
 				BF0000000000000000000031 /* Sources */,
 				BF0000000000000000000032 /* Frameworks */,
@@ -102,9 +102,9 @@
 			);
 			dependencies = (
 			);
-			name = GPXViewer;
-			productName = GPXViewer;
-			productReference = BF000000000000000000001C /* GPXViewer.app */;
+			name = Gpxex;
+			productName = Gpxex;
+			productReference = BF000000000000000000001C /* Gpxex.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -122,7 +122,7 @@
 					};
 				};
 			};
-			buildConfigurationList = BF0000000000000000000055 /* Build configuration list for PBXProject "GPXViewer" */;
+			buildConfigurationList = BF0000000000000000000055 /* Build configuration list for PBXProject "Gpxex" */;
 			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
@@ -135,7 +135,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				BF0000000000000000000041 /* GPXViewer */,
+				BF0000000000000000000041 /* Gpxex */,
 			);
 		};
 /* End PBXProject section */
@@ -156,7 +156,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				BF0000000000000000000001 /* GPXViewerApp.swift in Sources */,
+				BF0000000000000000000001 /* GpxexApp.swift in Sources */,
 				BF0000000000000000000002 /* ContentView.swift in Sources */,
 				BF0000000000000000000003 /* AppState.swift in Sources */,
 				BF0000000000000000000004 /* GPXRoute.swift in Sources */,
@@ -290,14 +290,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = GPXViewer/GPXViewer.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Gpxex/Gpxex.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = GPXViewer/Info.plist;
+				INFOPLIST_FILE = Gpxex/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -316,14 +316,14 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = GPXViewer/GPXViewer.entitlements;
+				CODE_SIGN_ENTITLEMENTS = Gpxex/Gpxex.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = GPXViewer/Info.plist;
+				INFOPLIST_FILE = Gpxex/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -340,7 +340,7 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		BF0000000000000000000055 /* Build configuration list for PBXProject "GPXViewer" */ = {
+		BF0000000000000000000055 /* Build configuration list for PBXProject "Gpxex" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				BF0000000000000000000051 /* Debug */,
@@ -349,7 +349,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		BF0000000000000000000056 /* Build configuration list for PBXNativeTarget "GPXViewer" */ = {
+		BF0000000000000000000056 /* Build configuration list for PBXNativeTarget "Gpxex" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				BF0000000000000000000053 /* Debug */,
