@@ -63,11 +63,26 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
     var lastSelectedId: UUID? = nil
     var lastHoveredId: UUID? = nil
 
-    // O(1) lookups by route ID
-    private var overlayMap: [UUID: MKPolyline] = [:]
+    // Route data lookup
     private var routeIndex: [UUID: GPXRoute] = [:]
 
-    // Current map span, updated on region changes
+    // Per-route MKPolyline objects (used as children of MKMultiPolyline; never added directly)
+    private var polylineStore: [UUID: MKPolyline] = [:]
+
+    // P4: 10 group overlays (keyed by colorIndex % palette.count) — on the map, inactive style
+    private var groupOverlays: [Int: MKMultiPolyline] = [:]
+    // P3: cached group renderers — populated by mapView(_:rendererFor:)
+    private var groupRenderers: [Int: MKMultiPolylineRenderer] = [:]
+
+    // P4: individual overlays for active (hovered/selected) routes — added on top of groups
+    private var activePolylines: [UUID: MKPolyline] = [:]
+    // P3: cached active renderers
+    private var activeRenderers: [UUID: MKPolylineRenderer] = [:]
+
+    // Currently active route IDs (hovered OR selected)
+    private var activeIds: Set<UUID> = []
+
+    // P1: last rendered span — skip renderer refresh when span is unchanged (pure pan)
     private var currentSpan: Double = 0.05
 
     init(appState: AppState) {
@@ -78,98 +93,182 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
 
     func updateOverlays(on mapView: MKMapView) {
         let currentIds = Set(appState.routes.map { $0.id })
-        let previousIds = Set(overlayMap.keys)
+        let previousIds = Set(polylineStore.keys)
 
-        // Remove overlays for deleted routes
         let removedIds = previousIds.subtracting(currentIds)
-        if !removedIds.isEmpty {
-            let toRemove = removedIds.compactMap { overlayMap[$0] }
-            mapView.removeOverlays(toRemove)
-            removedIds.forEach {
-                overlayMap.removeValue(forKey: $0)
-                routeIndex.removeValue(forKey: $0)
+        let addedIds   = currentIds.subtracting(previousIds)
+        guard !removedIds.isEmpty || !addedIds.isEmpty else { return }
+
+        var dirtySlots = Set<Int>()
+
+        // Remove deleted routes
+        for id in removedIds {
+            if let route = routeIndex[id] {
+                dirtySlots.insert(route.colorIndex % routeColorPalette.count)
             }
+            polylineStore.removeValue(forKey: id)
+            routeIndex.removeValue(forKey: id)
+            activeIds.remove(id)
+            if let poly = activePolylines.removeValue(forKey: id) {
+                mapView.removeOverlay(poly)
+            }
+            activeRenderers.removeValue(forKey: id)
         }
 
-        // Add overlays for new routes
-        let addedIds = currentIds.subtracting(previousIds)
-        if !addedIds.isEmpty {
-            var newOverlays: [MKPolyline] = []
-            for route in appState.routes where addedIds.contains(route.id) {
-                let coords = route.simplified
-                let polyline = MKPolyline(coordinates: coords, count: coords.count)
-                polyline.title = route.id.uuidString
-                overlayMap[route.id] = polyline
-                routeIndex[route.id] = route
-                newOverlays.append(polyline)
+        // Add new routes
+        for route in appState.routes where addedIds.contains(route.id) {
+            let poly = MKPolyline(coordinates: route.simplified, count: route.simplified.count)
+            poly.title = route.id.uuidString
+            polylineStore[route.id] = poly
+            routeIndex[route.id] = route
+            dirtySlots.insert(route.colorIndex % routeColorPalette.count)
+        }
+
+        // Rebuild only the color groups that gained or lost routes
+        for slot in dirtySlots {
+            if let old = groupOverlays.removeValue(forKey: slot) {
+                mapView.removeOverlay(old)
             }
-            mapView.addOverlays(newOverlays, level: .aboveRoads)
+            groupRenderers.removeValue(forKey: slot)
+
+            let members = routeIndex.values
+                .filter { $0.colorIndex % routeColorPalette.count == slot }
+                .compactMap { polylineStore[$0.id] }
+
+            guard !members.isEmpty else { continue }
+
+            let multi = MKMultiPolyline(members)
+            multi.title = String(slot)
+            groupOverlays[slot] = multi
+
+            // Insert below any existing active overlays so they stay on top
+            if let lowestActive = mapView.overlays.first(where: { overlay in
+                guard let poly = overlay as? MKPolyline else { return false }
+                return activePolylines.values.contains { $0 === poly }
+            }) {
+                mapView.insertOverlay(multi, below: lowestActive)
+            } else {
+                mapView.addOverlay(multi, level: .aboveRoads)
+            }
         }
 
         lastRouteIds = appState.routes.map { $0.id }
     }
 
-    func refreshRenderers(on mapView: MKMapView) {
-        // Only touch the renderers whose active state actually changed
-        var changedIds: Set<UUID> = []
-        if let id = lastSelectedId      { changedIds.insert(id) }
-        if let id = appState.selectedRouteId { changedIds.insert(id) }
-        if let id = lastHoveredId       { changedIds.insert(id) }
-        if let id = appState.hoveredRouteId  { changedIds.insert(id) }
+    // MARK: Active state (hover / selection)
 
-        for id in changedIds {
-            guard let polyline = overlayMap[id],
-                  let renderer = mapView.renderer(for: polyline) as? MKPolylineRenderer,
-                  let route = routeIndex[id]
-            else { continue }
-            let active = appState.selectedRouteId == id || appState.hoveredRouteId == id
-            applyStyle(renderer: renderer, route: route, active: active)
-            renderer.setNeedsDisplay()
+    func updateActiveState(on mapView: MKMapView) {
+        let newActiveIds = Set([appState.selectedRouteId, appState.hoveredRouteId].compactMap { $0 })
+        guard newActiveIds != activeIds else {
+            lastSelectedId = appState.selectedRouteId
+            lastHoveredId  = appState.hoveredRouteId
+            return
+        }
+
+        let becameActive   = newActiveIds.subtracting(activeIds)
+        let becameInactive = activeIds.subtracting(newActiveIds)
+        activeIds = newActiveIds
+
+        // Remove overlays for routes that are no longer active
+        for id in becameInactive {
+            if let poly = activePolylines.removeValue(forKey: id) {
+                mapView.removeOverlay(poly)
+            }
+            activeRenderers.removeValue(forKey: id)
+        }
+
+        // Add overlays for newly active routes (on top — addOverlay appends to z-order)
+        for id in becameActive {
+            guard let route = routeIndex[id] else { continue }
+            let poly = MKPolyline(coordinates: route.simplified, count: route.simplified.count)
+            poly.title = id.uuidString
+            activePolylines[id] = poly
+            mapView.addOverlay(poly, level: .aboveRoads)
         }
 
         lastSelectedId = appState.selectedRouteId
-        lastHoveredId = appState.hoveredRouteId
+        lastHoveredId  = appState.hoveredRouteId
     }
 
-    private func applyStyle(renderer: MKPolylineRenderer, route: GPXRoute, active: Bool) {
-        renderer.strokeColor = route.color.nsColor.withAlphaComponent(active ? 1.0 : 0.65)
-        renderer.lineWidth = scaledLineWidth(base: active ? 5.5 : 3.0)
-        renderer.lineCap = .round
-        renderer.lineJoin = .round
+    // MARK: Styling
+
+    private func applyActiveStyle(renderer: MKPolylineRenderer, route: GPXRoute) {
+        renderer.strokeColor = route.color.nsColor
+        renderer.lineWidth   = scaledLineWidth(base: 5.5)
+        renderer.lineCap     = .round
+        renderer.lineJoin    = .round
     }
 
-    // Widens lines logarithmically as the map zooms out.
-    // At span ~0.01°: 1× base. Each 10× increase in span adds 0.5× base.
     private func scaledLineWidth(base: CGFloat) -> CGFloat {
         let logFactor = log10(max(currentSpan, 0.01) / 0.01)
         return base * CGFloat(1.0 + logFactor * 0.5)
     }
 
-    // MARK: MKMapViewDelegate
+    // MARK: MKMapViewDelegate — renderer factory
 
     func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
-        guard let polyline = overlay as? MKPolyline else {
-            return MKOverlayRenderer(overlay: overlay)
+        // Active individual route polyline
+        if let polyline = overlay as? MKPolyline,
+           let routeId  = UUID(uuidString: polyline.title ?? ""),
+           let route    = routeIndex[routeId] {
+            let renderer = MKPolylineRenderer(polyline: polyline)
+            applyActiveStyle(renderer: renderer, route: route)
+            activeRenderers[routeId] = renderer  // P3: cache
+            return renderer
         }
-        let renderer = MKPolylineRenderer(polyline: polyline)
-        if let routeId = UUID(uuidString: polyline.title ?? ""),
-           let route = routeIndex[routeId] {
-            let active = appState.selectedRouteId == routeId || appState.hoveredRouteId == routeId
-            applyStyle(renderer: renderer, route: route, active: active)
+
+        // Inactive group multi-polyline
+        if let multi = overlay as? MKMultiPolyline,
+           let slot  = Int(multi.title ?? "") {
+            let renderer = MKMultiPolylineRenderer(multiPolyline: multi)
+            let color = routeColorPalette[slot % routeColorPalette.count]
+            renderer.strokeColor = color.nsColor.withAlphaComponent(0.65)
+            renderer.lineWidth   = scaledLineWidth(base: 3.0)
+            renderer.lineCap     = .round
+            renderer.lineJoin    = .round
+            groupRenderers[slot] = renderer  // P3: cache
+            return renderer
         }
-        return renderer
+
+        return MKOverlayRenderer(overlay: overlay)
     }
 
     // MARK: Region changes
 
     func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
-        currentSpan = mapView.region.span.latitudeDelta
-        for (routeId, polyline) in overlayMap {
-            guard let renderer = mapView.renderer(for: polyline) as? MKPolylineRenderer,
-                  let route = routeIndex[routeId]
-            else { continue }
-            let active = appState.selectedRouteId == routeId || appState.hoveredRouteId == routeId
-            applyStyle(renderer: renderer, route: route, active: active)
+        let newSpan = mapView.region.span.latitudeDelta
+
+        // P1: Skip entirely on pure pan — only proceed when zoom level changed (>1%)
+        guard abs(newSpan - currentSpan) / max(currentSpan, 1e-9) > 0.01 else { return }
+        currentSpan = newSpan
+
+        let region = mapView.region
+        let visMinLat = region.center.latitude  - region.span.latitudeDelta  / 2
+        let visMaxLat = region.center.latitude  + region.span.latitudeDelta  / 2
+        let visMinLon = region.center.longitude - region.span.longitudeDelta / 2
+        let visMaxLon = region.center.longitude + region.span.longitudeDelta / 2
+
+        let inactiveWidth = scaledLineWidth(base: 3.0)
+        let activeWidth   = scaledLineWidth(base: 5.5)
+
+        // P2: only refresh group renderers whose routes are visible
+        // P3: use cached groupRenderers directly (no mapView.renderer(for:) calls)
+        for (slot, renderer) in groupRenderers {
+            // Check if any route in this slot intersects the visible region
+            let visible = routeIndex.values.contains { route in
+                guard route.colorIndex % routeColorPalette.count == slot else { return false }
+                let b = route.boundingBox
+                return b.maxLat >= visMinLat && b.minLat <= visMaxLat
+                    && b.maxLon >= visMinLon && b.minLon <= visMaxLon
+            }
+            guard visible else { continue }
+            renderer.lineWidth = inactiveWidth
+            renderer.setNeedsDisplay()
+        }
+
+        // Active renderers are always few (0–2); refresh unconditionally
+        for renderer in activeRenderers.values {
+            renderer.lineWidth = activeWidth
             renderer.setNeedsDisplay()
         }
     }
@@ -209,8 +308,7 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
     }
 
     private func nearestRoute(to point: CGPoint, in mapView: MKMapView, threshold: CGFloat) -> UUID? {
-        // Convert cursor to map coordinates for bounding-box pre-filter
-        let coord = mapView.convert(point, toCoordinateFrom: mapView)
+        let coord   = mapView.convert(point, toCoordinateFrom: mapView)
         let spanLat = mapView.region.span.latitudeDelta
         let spanLon = mapView.region.span.longitudeDelta
         let h = max(1.0, Double(mapView.bounds.height))
@@ -221,7 +319,6 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
         var best: (id: UUID, dist: CGFloat)? = nil
 
         for (routeId, route) in routeIndex {
-            // Bounding-box pre-filter: 4 comparisons to skip distant routes
             let b = route.boundingBox
             guard coord.latitude  >= b.minLat - padLat,
                   coord.latitude  <= b.maxLat + padLat,
@@ -229,8 +326,7 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
                   coord.longitude <= b.maxLon + padLon
             else { continue }
 
-            // Precise segment scan only for candidates that passed the filter
-            guard let polyline = overlayMap[routeId] else { continue }
+            guard let polyline = polylineStore[routeId] else { continue }
             let pts = (0..<polyline.pointCount).map {
                 mapView.convert(polyline.points()[$0].coordinate, toPointTo: mapView)
             }
@@ -245,13 +341,11 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
     }
 
     private func distPointToSegment(p: CGPoint, a: CGPoint, b: CGPoint) -> CGFloat {
-        let ab = CGPoint(x: b.x - a.x, y: b.y - a.y)
-        let ap = CGPoint(x: p.x - a.x, y: p.y - a.y)
+        let ab   = CGPoint(x: b.x - a.x, y: b.y - a.y)
+        let ap   = CGPoint(x: p.x - a.x, y: p.y - a.y)
         let len2 = ab.x * ab.x + ab.y * ab.y
-        guard len2 > 0 else {
-            return hypot(ap.x, ap.y)
-        }
-        let t = max(0, min(1, (ap.x * ab.x + ap.y * ab.y) / len2))
+        guard len2 > 0 else { return hypot(ap.x, ap.y) }
+        let t       = max(0, min(1, (ap.x * ab.x + ap.y * ab.y) / len2))
         let closest = CGPoint(x: a.x + t * ab.x, y: a.y + t * ab.y)
         return hypot(p.x - closest.x, p.y - closest.y)
     }
@@ -259,8 +353,7 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
     // MARK: Map fitting
 
     @objc func handleFitAll() {
-        guard let mapView else { return }
-        guard !routeIndex.isEmpty else { return }
+        guard let mapView, !routeIndex.isEmpty else { return }
         var minLat =  Double.infinity, maxLat = -Double.infinity
         var minLon =  Double.infinity, maxLon = -Double.infinity
         for route in routeIndex.values {
@@ -275,7 +368,7 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate {
 
     @objc func handleZoomToRoute(_ notification: Notification) {
         guard let routeId = notification.object as? UUID,
-              let route = routeIndex[routeId],
+              let route   = routeIndex[routeId],
               let mapView else { return }
         let b = route.boundingBox
         applyRegion(mapView, minLat: b.minLat, maxLat: b.maxLat, minLon: b.minLon, maxLon: b.maxLon)
@@ -339,7 +432,7 @@ struct MapView: NSViewRepresentable {
             coord.updateOverlays(on: mapView)
         } else if appState.selectedRouteId != coord.lastSelectedId
                     || appState.hoveredRouteId != coord.lastHoveredId {
-            coord.refreshRenderers(on: mapView)
+            coord.updateActiveState(on: mapView)
         }
     }
 }

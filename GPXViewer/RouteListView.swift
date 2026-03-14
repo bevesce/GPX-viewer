@@ -4,8 +4,7 @@ import SwiftUI
 
 private let dateFormatter: DateFormatter = {
     let f = DateFormatter()
-    f.dateStyle = .medium
-    f.timeStyle = .none
+    f.dateFormat = "yyyy-MM-dd"
     return f
 }()
 
@@ -43,13 +42,41 @@ private func formatDistance(_ metres: Double) -> String {
 
 struct RouteListView: View {
     @EnvironmentObject var appState: AppState
+    @State private var searchText = ""
+
+    private var filteredRoutes: [GPXRoute] {
+        guard !searchText.isEmpty else { return appState.routes }
+        let q = searchText.lowercased()
+        return appState.routes.filter { route in
+            if route.fileName.lowercased().contains(q) { return true }
+            if let date = route.startTime, dateFormatter.string(from: date).contains(q) { return true }
+            return false
+        }
+    }
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Text("")
-                    .font(.headline)
-                Spacer()
+            HStack(spacing: 6) {
+                HStack(spacing: 5) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+                        .font(.system(size: 12))
+                    TextField("Search", text: $searchText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 12))
+                    if !searchText.isEmpty {
+                        Button(action: { searchText = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                                .font(.system(size: 11))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 7)
+                .padding(.vertical, 4)
+                .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+
                 Button(action: { appState.openFilePicker() }) {
                     Image(systemName: "plus")
                         .font(.system(size: 12, weight: .semibold))
@@ -57,8 +84,8 @@ struct RouteListView: View {
                 .buttonStyle(.plain)
                 .help("Open GPX files")
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
             .background(Color(NSColor.windowBackgroundColor))
 
             Divider()
@@ -94,10 +121,19 @@ struct RouteListView: View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
-                    ForEach(appState.routes) { route in
-                        RouteRowView(route: route)
-                            .id(route.id)
-                        Divider().padding(.leading, 32)
+                    let routes = filteredRoutes
+                    if routes.isEmpty {
+                        Text("No results")
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 32)
+                    } else {
+                        ForEach(routes) { route in
+                            RouteRowView(route: route)
+                                .id(route.id)
+                            Divider().padding(.leading, 32)
+                        }
                     }
                 }
             }

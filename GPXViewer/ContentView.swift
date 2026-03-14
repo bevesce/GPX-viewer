@@ -71,7 +71,7 @@ struct ContentView: View {
 
     private var mapToolbar: some View {
         Button(action: fitAll) {
-            Label("Fit All", systemImage: "arrow.up.left.and.arrow.down.right")
+            Image(systemName: "arrow.up.left.and.arrow.down.right")
                 .font(.system(size: 12))
         }
         .buttonStyle(.bordered)

@@ -9,6 +9,19 @@ class AppState: ObservableObject {
     @Published var loadingProgress: Double? = nil  // nil = idle, 0–1 = loading
 
     private let loadQueue = DispatchQueue(label: "gpx.load", qos: .userInitiated)
+    private static let savedURLsKey = "savedRouteURLs"
+
+    init() {
+        if let strings = UserDefaults.standard.stringArray(forKey: Self.savedURLsKey) {
+            let urls = strings.compactMap { URL(string: $0) }
+            if !urls.isEmpty { loadURLs(urls) }
+        }
+    }
+
+    private func persistRouteURLs() {
+        let strings = routes.map { $0.fileURL.absoluteString }
+        UserDefaults.standard.set(strings, forKey: Self.savedURLsKey)
+    }
 
     func loadURLs(_ urls: [URL]) {
         // Snapshot on main thread before going to background
@@ -97,6 +110,7 @@ class AppState: ObservableObject {
             // Fit after all batches land — main queue is FIFO so this runs last
             DispatchQueue.main.async { [weak self] in
                 self?.loadingProgress = nil
+                self?.persistRouteURLs()
                 NotificationCenter.default.post(name: .fitAllRoutes, object: nil)
             }
         }
@@ -106,6 +120,7 @@ class AppState: ObservableObject {
         routes.removeAll { $0.id == id }
         if selectedRouteId == id { selectedRouteId = nil }
         if hoveredRouteId == id { hoveredRouteId = nil }
+        persistRouteURLs()
     }
 
     func openFilePicker() {
