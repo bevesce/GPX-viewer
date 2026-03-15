@@ -24,10 +24,10 @@
 	<string>Gpxex</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
+	<key>UILaunchScreen</key>
+	<dict/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>GPX Viewer uses your location to zoom the map to your current position.</string>
-	<key>NSPrincipalClass</key>
-	<string>NSApplication</string>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>

@@ -1,5 +1,7 @@
 import Foundation
+#if os(macOS)
 import AppKit
+#endif
 import Combine
 
 class AppState: ObservableObject {
@@ -7,24 +9,33 @@ class AppState: ObservableObject {
     @Published var selectedRouteIds: Set<UUID> = []
     @Published var hoveredRouteId: UUID? = nil
     @Published var loadingProgress: Double? = nil  // nil = idle, 0–1 = loading
+    #if !os(macOS)
+    @Published var showingFilePicker = false
+    #endif
 
     // Anchor for shift-click range selection — not published (no re-render needed)
     var lastClickedRouteId: UUID? = nil
 
     private let loadQueue = DispatchQueue(label: "gpx.load", qos: .userInitiated)
+    #if os(macOS)
     private static let savedURLsKey = "savedRouteURLs"
+    #endif
 
     init() {
+        #if os(macOS)
         if let strings = UserDefaults.standard.stringArray(forKey: Self.savedURLsKey) {
             let urls = strings.compactMap { URL(string: $0) }
             if !urls.isEmpty { loadURLs(urls) }
         }
+        #endif
     }
 
+    #if os(macOS)
     private func persistRouteURLs() {
         let strings = routes.map { $0.fileURL.absoluteString }
         UserDefaults.standard.set(strings, forKey: Self.savedURLsKey)
     }
+    #endif
 
     func loadURLs(_ urls: [URL]) {
         // Snapshot on main thread before going to background
@@ -65,6 +76,12 @@ class AppState: ObservableObject {
             var completed = 0
             var lastReportedFraction = 0.0
             let lock = NSLock()
+
+            #if !os(macOS)
+            // Start security-scoped access for all URLs before concurrent reading
+            for url in newURLs { _ = url.startAccessingSecurityScopedResource() }
+            defer { newURLs.forEach { $0.stopAccessingSecurityScopedResource() } }
+            #endif
 
             DispatchQueue.concurrentPerform(iterations: totalCount) { i in
                 let url = newURLs[i]
@@ -113,7 +130,9 @@ class AppState: ObservableObject {
             // Fit after all batches land — main queue is FIFO so this runs last
             DispatchQueue.main.async { [weak self] in
                 self?.loadingProgress = nil
+                #if os(macOS)
                 self?.persistRouteURLs()
+                #endif
                 NotificationCenter.default.post(name: .fitAllRoutes, object: nil)
             }
         }
@@ -124,7 +143,9 @@ class AppState: ObservableObject {
         selectedRouteIds.remove(id)
         if lastClickedRouteId == id { lastClickedRouteId = nil }
         if hoveredRouteId == id { hoveredRouteId = nil }
+        #if os(macOS)
         persistRouteURLs()
+        #endif
     }
 
     func removeSelectedRoutes() {
@@ -133,9 +154,12 @@ class AppState: ObservableObject {
         selectedRouteIds = []
         lastClickedRouteId = nil
         if let h = hoveredRouteId, ids.contains(h) { hoveredRouteId = nil }
+        #if os(macOS)
         persistRouteURLs()
+        #endif
     }
 
+    #if os(macOS)
     func handleListTap(route: GPXRoute, modifiers: NSEvent.ModifierFlags, visibleRoutes: [GPXRoute]) {
         if modifiers.contains(.shift) {
             guard let anchor = lastClickedRouteId,
@@ -166,8 +190,34 @@ class AppState: ObservableObject {
             lastClickedRouteId = route.id
         }
     }
+    #else
+    func handleListTap(route: GPXRoute, visibleRoutes: [GPXRoute]) {
+        if selectedRouteIds == [route.id] {
+            selectedRouteIds = []
+        } else {
+            selectedRouteIds = [route.id]
+        }
+        lastClickedRouteId = route.id
+    }
+    #endif
+
+    #if os(macOS)
+    func renameRoute(id: UUID, newName: String) throws {
+        guard let idx = routes.firstIndex(where: { $0.id == id }) else { return }
+        let route = routes[idx]
+        let newURL = route.fileURL
+            .deletingLastPathComponent()
+            .appendingPathComponent(newName)
+            .appendingPathExtension(route.fileURL.pathExtension)
+        try FileManager.default.moveItem(at: route.fileURL, to: newURL)
+        routes[idx].fileName = newName
+        routes[idx].fileURL = newURL
+        persistRouteURLs()
+    }
+    #endif
 
     func openFilePicker() {
+        #if os(macOS)
         let panel = NSOpenPanel()
         panel.canChooseFiles = true
         panel.canChooseDirectories = true
@@ -177,5 +227,8 @@ class AppState: ObservableObject {
         if panel.runModal() == .OK {
             loadURLs(panel.urls)
         }
+        #else
+        showingFilePicker = true
+        #endif
     }
 }

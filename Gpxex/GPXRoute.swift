@@ -1,15 +1,25 @@
 import Foundation
 import CoreLocation
 import SwiftUI
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 
 struct RouteColor {
     let swiftUI: Color
-    let nsColor: NSColor
+    private let r, g, b: Double
+
+    #if os(macOS)
+    var native: NSColor { NSColor(red: r, green: g, blue: b, alpha: 1.0) }
+    #else
+    var native: UIColor { UIColor(red: r, green: g, blue: b, alpha: 1.0) }
+    #endif
 
     init(r: Double, g: Double, b: Double) {
+        self.r = r; self.g = g; self.b = b
         self.swiftUI = Color(red: r, green: g, blue: b)
-        self.nsColor = NSColor(red: r, green: g, blue: b, alpha: 1.0)
     }
 }
 
@@ -35,12 +45,12 @@ struct RouteBoundingBox {
 
 struct GPXRoute: Identifiable {
     let id: UUID
-    let fileName: String
+    var fileName: String
     let coordinates: [CLLocationCoordinate2D]
     let simplified: [CLLocationCoordinate2D]  // decimated for map rendering
     let boundingBox: RouteBoundingBox          // derived from simplified at init time
     let colorIndex: Int
-    let fileURL: URL
+    var fileURL: URL
     let startTime: Date?
     let endTime: Date?
     let totalDistance: Double  // metres

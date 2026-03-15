@@ -4,8 +4,12 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @State private var isDropTargeted = false
+    #if os(iOS)
+    @State private var selectedDetent: PresentationDetent = .height(80)
+    #endif
 
     var body: some View {
+        #if os(macOS)
         NavigationSplitView {
             RouteListView()
                 .frame(minWidth: 220, idealWidth: 260)
@@ -14,7 +18,6 @@ struct ContentView: View {
             ZStack {
                 MapView(appState: appState)
 
-                // Drop overlay indicator
                 if isDropTargeted {
                     RoundedRectangle(cornerRadius: 12)
                         .stroke(Color.accentColor, lineWidth: 3)
@@ -34,54 +37,119 @@ struct ContentView: View {
                         )
                 }
 
-                // Map toolbar — top-right
                 VStack {
                     HStack {
                         Spacer()
-                        mapToolbar
-                            .padding(10)
+                        locationButton.padding(10)
                     }
                     Spacer()
                 }
 
-                // Loading progress overlay (bottom-left)
                 if let progress = appState.loadingProgress {
                     VStack {
                         Spacer()
                         HStack {
                             ProgressView(value: progress)
                                 .frame(width: 160)
-                            .padding(8)
-                            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                            .shadow(radius: 4)
-                            .padding(10)
+                                .padding(8)
+                                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                                .shadow(radius: 4)
+                                .padding(10)
                             Spacer()
                         }
                     }
                 }
             }
+            .toolbar(.hidden)
+            .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         }
         .onDrop(of: [.fileURL], isTargeted: $isDropTargeted) { providers in
             handleDrop(providers: providers)
         }
         .frame(minWidth: 800, minHeight: 550)
+        #else
+        MapView(appState: appState)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .ignoresSafeArea()
+            .overlay(alignment: .bottomTrailing) {
+                Group {
+                    if selectedDetent != .large {
+                        Group {
+                            if #available(iOS 26, *) {
+                                GlassEffectContainer {
+                                    locationButton
+                                }
+                                    .padding(.trailing, 16)
+                                .padding(.bottom, locationButtonBottomPadding)
+                            } else {
+                                locationButton
+                            }
+                        }
+                        .transition(.scale(scale: 0.5).combined(with: .opacity))
+                    }
+                }
+                .animation(.spring(response: 0.4, dampingFraction: 0.75), value: selectedDetent)
+            }
+            .overlay(alignment: .bottomLeading) {
+                if let progress = appState.loadingProgress {
+                    ProgressView(value: progress)
+                        .frame(width: 160)
+                        .padding(8)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                        .shadow(radius: 4)
+                        .padding(.leading, 10)
+                        .padding(.bottom, 8)
+                }
+            }
+            .sheet(isPresented: .constant(true)) {
+                RouteListView()
+                    .fileImporter(
+                        isPresented: $appState.showingFilePicker,
+                        allowedContentTypes: [UTType(importedAs: "com.topografix.gpx"), .xml],
+                        allowsMultipleSelection: true
+                    ) { result in
+                        if case .success(let urls) = result {
+                            appState.loadURLs(urls)
+                        }
+                    }
+                    .presentationDetents([.height(80), .medium, .large], selection: $selectedDetent)
+                    .presentationDragIndicator(.visible)
+                    .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+                    .presentationCornerRadius(20)
+                    .interactiveDismissDisabled(true)
+            }
+        #endif
     }
 
-    private var mapToolbar: some View {
+    #if os(iOS)
+    private var locationButtonBottomPadding: CGFloat {
+        let H = UIScreen.main.bounds.height
+        let margin: CGFloat = 8
+        if selectedDetent == .height(80) {
+            return 80 + margin
+        } else {
+            return H * 0.5 + margin
+        }
+    }
+    #endif
+
+    private var locationButton: some View {
         Button(action: {
             NotificationCenter.default.post(name: .zoomToUserLocation, object: nil)
         }) {
             Image(systemName: "location.fill")
-                .font(.system(size: 12))
+                .padding(4)
+                .shadow(radius: 3)
+            
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        #if os(macOS)
         .help("Zoom to current location")
-        .padding(6)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-        .shadow(radius: 4)
+        #else
+        .buttonStyle(.plain)
+        #endif
     }
 
+    #if os(macOS)
     private func handleDrop(providers: [NSItemProvider]) -> Bool {
         guard !providers.isEmpty else { return false }
         for provider in providers {
@@ -103,11 +171,12 @@ struct ContentView: View {
         }
         return true
     }
+    #endif
 }
 
 extension Notification.Name {
-    static let fitAllRoutes      = Notification.Name("fitAllRoutes")
-    static let zoomToRoute       = Notification.Name("zoomToRoute")
-    static let scrollToRoute     = Notification.Name("scrollToRoute")
+    static let fitAllRoutes       = Notification.Name("fitAllRoutes")
+    static let zoomToRoute        = Notification.Name("zoomToRoute")
+    static let scrollToRoute      = Notification.Name("scrollToRoute")
     static let zoomToUserLocation = Notification.Name("zoomToUserLocation")
 }

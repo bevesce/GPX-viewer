@@ -1,10 +1,15 @@
 import SwiftUI
 import MapKit
+#if os(macOS)
 import AppKit
+#else
+import UIKit
+#endif
 import CoreLocation
 
-// MARK: - HoverableMapView
+// MARK: - HoverableMapView (macOS only)
 
+#if os(macOS)
 final class HoverableMapView: MKMapView {
     weak var coordinator: MapViewCoordinator?
 
@@ -53,12 +58,13 @@ final class HoverableMapView: MKMapView {
         didDrag = false
     }
 }
+#endif
 
 // MARK: - Coordinator
 
 final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDelegate {
     let appState: AppState
-    weak var mapView: HoverableMapView?
+    weak var mapView: MKMapView?
 
     var lastRouteIds: [UUID] = []
     var lastSelectedIds: Set<UUID> = []
@@ -202,7 +208,7 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDe
     // MARK: Styling
 
     private func applyActiveStyle(renderer: MKPolylineRenderer, route: GPXRoute) {
-        renderer.strokeColor = route.color.nsColor
+        renderer.strokeColor = route.color.native
         renderer.lineWidth   = scaledLineWidth(base: 5.5)
         renderer.lineCap     = .round
         renderer.lineJoin    = .round
@@ -231,7 +237,7 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDe
            let slot  = Int(multi.title ?? "") {
             let renderer = MKMultiPolylineRenderer(multiPolyline: multi)
             let color = routeColorPalette[slot % routeColorPalette.count]
-            renderer.strokeColor = color.nsColor.withAlphaComponent(0.65)
+            renderer.strokeColor = color.native.withAlphaComponent(0.65)
             renderer.lineWidth   = scaledLineWidth(base: 3.0)
             renderer.lineCap     = .round
             renderer.lineJoin    = .round
@@ -284,6 +290,7 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDe
 
     // MARK: Hit testing
 
+    #if os(macOS)
     func handleMouseMoved(at point: CGPoint, in mapView: MKMapView) {
         let routeId = nearestRoute(to: point, in: mapView, threshold: 10)
         if routeId != appState.hoveredRouteId {
@@ -330,6 +337,27 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDe
             }
         }
     }
+    #else
+    @objc func handleTap(_ gesture: UITapGestureRecognizer) {
+        guard let mapView else { return }
+        let point = gesture.location(in: mapView)
+        let routeId = nearestRoute(to: point, in: mapView, threshold: 22)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if let routeId {
+                if self.appState.selectedRouteIds == [routeId] {
+                    self.appState.selectedRouteIds = []
+                } else {
+                    self.appState.selectedRouteIds = [routeId]
+                    self.appState.lastClickedRouteId = routeId
+                    NotificationCenter.default.post(name: .scrollToRoute, object: routeId)
+                }
+            } else {
+                self.appState.selectedRouteIds = []
+            }
+        }
+    }
+    #endif
 
     private func nearestRoute(to point: CGPoint, in mapView: MKMapView, threshold: CGFloat) -> UUID? {
         let coord   = mapView.convert(point, toCoordinateFrom: mapView)
@@ -398,13 +426,21 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDe
         applyRegion(mapView, minLat: b.minLat, maxLat: b.maxLat, minLon: b.minLon, maxLon: b.maxLon)
     }
 
+    private func isLocationAuthorized(_ status: CLAuthorizationStatus) -> Bool {
+        #if os(macOS)
+        return status == .authorized || status == .authorizedAlways
+        #else
+        return status == .authorizedWhenInUse || status == .authorizedAlways
+        #endif
+    }
+
     @objc func handleZoomToUserLocation() {
         guard let mapView else { return }
         let status = locationManager.authorizationStatus
-        switch status {
-        case .notDetermined:
+        print(status == .notDetermined)
+        if status == .notDetermined {
             locationManager.requestWhenInUseAuthorization()
-        case .authorized, .authorizedAlways:
+        } else if isLocationAuthorized(status) {
             mapView.showsUserLocation = true
             if let location = mapView.userLocation.location {
                 let region = MKCoordinateRegion(
@@ -413,8 +449,6 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDe
                 )
                 mapView.setRegion(region, animated: true)
             }
-        default:
-            break
         }
     }
 
@@ -422,7 +456,8 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDe
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
-        if status == .authorized || status == .authorizedAlways {
+        let authorized = isLocationAuthorized(status)
+        if authorized {
             mapView?.showsUserLocation = true
             if let location = mapView?.userLocation.location {
                 let region = MKCoordinateRegion(
@@ -454,6 +489,7 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDe
 
 // MARK: - SwiftUI wrapper
 
+#if os(macOS)
 struct MapView: NSViewRepresentable {
     @ObservedObject var appState: AppState
 
@@ -502,3 +538,58 @@ struct MapView: NSViewRepresentable {
         }
     }
 }
+#else
+struct MapView: UIViewRepresentable {
+    @ObservedObject var appState: AppState
+
+    func makeCoordinator() -> MapViewCoordinator {
+        MapViewCoordinator(appState: appState)
+    }
+
+    func makeUIView(context: Context) -> MKMapView {
+        let mapView = MKMapView()
+        context.coordinator.mapView = mapView
+        mapView.delegate = context.coordinator
+        mapView.showsCompass = true
+        mapView.showsScale = true
+
+        let tap = UITapGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(MapViewCoordinator.handleTap(_:))
+        )
+        mapView.addGestureRecognizer(tap)
+
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(MapViewCoordinator.handleFitAll),
+            name: .fitAllRoutes,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(MapViewCoordinator.handleZoomToRoute(_:)),
+            name: .zoomToRoute,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
+            selector: #selector(MapViewCoordinator.handleZoomToUserLocation),
+            name: .zoomToUserLocation,
+            object: nil
+        )
+        return mapView
+    }
+
+    func updateUIView(_ mapView: MKMapView, context: Context) {
+        let coord = context.coordinator
+        let currentIds = appState.routes.map { $0.id }
+
+        if currentIds != coord.lastRouteIds {
+            coord.updateOverlays(on: mapView)
+        } else if appState.selectedRouteIds != coord.lastSelectedIds
+                    || appState.hoveredRouteId != coord.lastHoveredId {
+            coord.updateActiveState(on: mapView)
+        }
+    }
+}
+#endif

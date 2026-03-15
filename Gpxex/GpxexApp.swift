@@ -9,7 +9,10 @@ struct GpxexApp: App {
             ContentView()
                 .environmentObject(appState)
         }
+        #if os(macOS)
         .commands {
+            SidebarCommands()
+
             CommandGroup(replacing: .newItem) {
                 Button("Open\u{2026}") {
                     appState.openFilePicker()
@@ -47,5 +50,6 @@ struct GpxexApp: App {
                 .disabled(appState.routes.isEmpty)
             }
         }
+        #endif
     }
 }

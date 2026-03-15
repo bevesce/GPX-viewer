@@ -87,18 +87,18 @@ struct RouteListView: View {
                 }
                 .padding(.horizontal, 7)
                 .padding(.vertical, 4)
-                .background(Color(NSColor.controlBackgroundColor), in: RoundedRectangle(cornerRadius: 6))
+                .background(searchBarBackground, in: RoundedRectangle(cornerRadius: 6))
 
                 Button(action: { appState.openFilePicker() }) {
                     Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .semibold))
+                        .font(.system(size: 12, weight: .regular))
                 }
                 .buttonStyle(.plain)
                 .help("Open GPX files")
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
-            .background(Color(NSColor.windowBackgroundColor))
+            .background(headerBackground)
 
             Divider()
 
@@ -110,6 +110,22 @@ struct RouteListView: View {
         }
     }
 
+    private var searchBarBackground: Color {
+        #if os(macOS)
+        Color(nsColor: .controlBackgroundColor)
+        #else
+        Color.clear
+        #endif
+    }
+
+    private var headerBackground: some View {
+        #if os(macOS)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        Color.clear
+        #endif
+    }
+
     private var emptyState: some View {
         VStack(spacing: 12) {
             Spacer()
@@ -119,12 +135,16 @@ struct RouteListView: View {
             Text("No routes loaded")
                 .font(.headline)
                 .foregroundColor(.secondary)
+            #if os(macOS)
             Text("Drop GPX files here\nor use File \u{2192} Open")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
+            #else
+            Text("Tap + to open GPX files")
+            #endif
             Spacer()
         }
+        .font(.caption)
+        .foregroundColor(.secondary)
+        .multilineTextAlignment(.center)
         .frame(maxWidth: .infinity)
         .padding()
     }
@@ -166,6 +186,9 @@ struct RouteRowView: View {
     let allRoutes: [GPXRoute]
     @EnvironmentObject var appState: AppState
     @State private var isHovering = false
+    #if os(macOS)
+    @State private var showingRename = false
+    #endif
 
     private var isSelected: Bool { appState.selectedRouteIds.contains(route.id) }
     private var isHighlighted: Bool { appState.hoveredRouteId == route.id }
@@ -203,25 +226,43 @@ struct RouteRowView: View {
         .padding(.vertical, 8)
         .background(rowBackground)
         .contentShape(Rectangle())
+        #if os(macOS)
         .onHover { hovering in
             isHovering = hovering
             appState.hoveredRouteId = hovering ? route.id : nil
         }
+        #endif
         .onTapGesture(count: 2) {
             NotificationCenter.default.post(name: .zoomToRoute, object: route.id)
         }
         .onTapGesture(count: 1) {
+            #if os(macOS)
             let mods = NSEvent.modifierFlags
             appState.handleListTap(route: route, modifiers: mods, visibleRoutes: allRoutes)
+            #else
+            appState.handleListTap(route: route, visibleRoutes: allRoutes)
+            #endif
         }
         .contextMenu {
             Button("Zoom to Route") {
                 NotificationCenter.default.post(name: .zoomToRoute, object: route.id)
             }
+            #if os(macOS)
+            Button("Edit") {
+                showingRename = true
+            }
+            #endif
             Button("Remove") {
                 appState.removeRoute(id: route.id)
             }
         }
+        #if os(macOS)
+        .sheet(isPresented: $showingRename) {
+            RenameRouteView(route: route) { newName in
+                try appState.renameRoute(id: route.id, newName: newName)
+            }
+        }
+        #endif
     }
 
     @ViewBuilder
@@ -259,10 +300,68 @@ struct RouteRowView: View {
             if isSelected {
                 route.color.swiftUI.opacity(0.15)
             } else if isHighlighted || isHovering {
-                Color(NSColor.selectedContentBackgroundColor).opacity(0.08)
+                Color.accentColor.opacity(0.08)
             } else {
                 Color.clear
             }
         }
     }
 }
+
+// MARK: - RenameRouteView
+
+#if os(macOS)
+struct RenameRouteView: View {
+    let route: GPXRoute
+    let onRename: (String) throws -> Void
+
+    @State private var name: String
+    @State private var errorMessage: String?
+    @Environment(\.dismiss) private var dismiss
+
+    init(route: GPXRoute, onRename: @escaping (String) throws -> Void) {
+        self.route = route
+        self.onRename = onRename
+        self._name = State(initialValue: route.fileName)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Rename Route")
+                .font(.headline)
+
+            TextField("File name", text: $name)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 320)
+                .onSubmit { commit() }
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .foregroundColor(.red)
+                    .font(.caption)
+            }
+
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.escape, modifiers: [])
+                Button("Rename") { commit() }
+                    .keyboardShortcut(.return, modifiers: [])
+                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty || name == route.fileName)
+            }
+        }
+        .padding(24)
+    }
+
+    private func commit() {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, trimmed != route.fileName else { return }
+        do {
+            try onRename(trimmed)
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+#endif
