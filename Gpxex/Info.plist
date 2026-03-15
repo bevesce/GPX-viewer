@@ -4,6 +4,8 @@
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>Gpxex</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -20,26 +22,24 @@
 	<string>1</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
-	<key>CFBundleDisplayName</key>
-	<string>Gpxex</string>
 	<key>NSHumanReadableCopyright</key>
 	<string></string>
-	<key>UILaunchScreen</key>
-	<dict/>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>GPX Viewer uses your location to zoom the map to your current position.</string>
+	<key>UILaunchScreen</key>
+	<dict/>
 	<key>UTImportedTypeDeclarations</key>
 	<array>
 		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.topografix.gpx</string>
-			<key>UTTypeDescription</key>
-			<string>GPS Exchange Format</string>
 			<key>UTTypeConformsTo</key>
 			<array>
 				<string>public.xml</string>
 				<string>public.data</string>
 			</array>
+			<key>UTTypeDescription</key>
+			<string>GPS Exchange Format</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.topografix.gpx</string>
 			<key>UTTypeTagSpecification</key>
 			<dict>
 				<key>public.filename-extension</key>

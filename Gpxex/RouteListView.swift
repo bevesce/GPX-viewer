@@ -42,7 +42,11 @@ private func formatDistance(_ metres: Double) -> String {
 
 struct RouteListView: View {
     @EnvironmentObject var appState: AppState
-    @State private var searchText = ""
+    @Binding var searchText: String
+    #if os(iOS)
+    @Binding var selectedDetent: PresentationDetent
+    @FocusState private var searchFocused: Bool
+    #endif
 
     private var filteredRoutes: [GPXRoute] {
         let base: [GPXRoute]
@@ -67,47 +71,73 @@ struct RouteListView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 6) {
-                HStack(spacing: 5) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundColor(.secondary)
-                        .font(.system(size: 12))
-                    TextField("Search", text: $searchText)
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 12))
-                    if !searchText.isEmpty {
-                        Button(action: { searchText = "" }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.secondary)
-                                .font(.system(size: 11))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 7)
-                .padding(.vertical, 4)
-                .background(searchBarBackground, in: RoundedRectangle(cornerRadius: 6))
+        #if os(iOS)
+//        HStack {
+//            searchBar
+//                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+//        }
+//        .padding(20)
+        content
+            .safeAreaInset(edge: .top, spacing: 0) { searchBar }
+        #else
+        searchBar
+        content
+//            .safeAreaInset(edge: .top, spacing: 0) {  }
+        #endif
+    }
 
-                Button(action: { appState.openFilePicker() }) {
-                    Image(systemName: "plus")
-                        .font(.system(size: 12, weight: .regular))
-                }
-                .buttonStyle(.plain)
-                .help("Open GPX files")
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(headerBackground)
-
-            Divider()
-
+    private var content: some View {
+        #if os(iOS)
+        routeList
+        #else
+        Group {
             if appState.routes.isEmpty {
                 emptyState
             } else {
                 routeList
             }
         }
+        #endif
+    }
+
+    private var searchBar: some View {
+        HStack(spacing: 0) {
+            TextField("Search", text: $searchText)
+                #if os(iOS)
+                .focused($searchFocused)
+                .onChange(of: searchFocused) { _, focused in
+                    if focused { selectedDetent = .large }
+                }
+                #endif
+                .safeAreaInset(edge: .leading, content: {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+                })
+                .safeAreaInset(edge: .trailing, content: {
+                    if !searchText.isEmpty {
+                        Button(action: { searchText = "" }) {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                })
+                #if os(iOS)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(.gray.opacity(0.25), in: .capsule)
+                #else
+                .textFieldStyle(.roundedBorder)
+                #endif
+        }
+        #if os(iOS)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 18)
+        #else
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        #endif
+        .background(.thickMaterial)
     }
 
     private var searchBarBackground: Color {
@@ -122,13 +152,15 @@ struct RouteListView: View {
         #if os(macOS)
         Color(nsColor: .windowBackgroundColor)
         #else
-        Color.clear
+        Rectangle().fill(.ultraThinMaterial)
         #endif
     }
 
     private var emptyState: some View {
         VStack(spacing: 12) {
+            #if os(macOS)
             Spacer()
+            #endif
             Image(systemName: "map")
                 .font(.system(size: 36))
                 .foregroundColor(.secondary)
@@ -140,7 +172,9 @@ struct RouteListView: View {
             #else
             Text("Tap + to open GPX files")
             #endif
+            #if os(macOS)
             Spacer()
+            #endif
         }
         .font(.caption)
         .foregroundColor(.secondary)
@@ -155,7 +189,7 @@ struct RouteListView: View {
                 LazyVStack(spacing: 0) {
                     let routes = filteredRoutes
                     if routes.isEmpty {
-                        Text("No results")
+                        Text("No routes")
                             .font(.system(size: 13))
                             .foregroundColor(.secondary)
                             .frame(maxWidth: .infinity)

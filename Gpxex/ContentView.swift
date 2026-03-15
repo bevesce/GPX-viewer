@@ -4,6 +4,7 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @EnvironmentObject var appState: AppState
     @State private var isDropTargeted = false
+    @State private var searchText = ""
     #if os(iOS)
     @State private var selectedDetent: PresentationDetent = .height(80)
     #endif
@@ -11,7 +12,7 @@ struct ContentView: View {
     var body: some View {
         #if os(macOS)
         NavigationSplitView {
-            RouteListView()
+            RouteListView(searchText: $searchText)
                 .frame(minWidth: 220, idealWidth: 260)
                 .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 400)
         } detail: {
@@ -91,6 +92,25 @@ struct ContentView: View {
                 .animation(.spring(response: 0.4, dampingFraction: 0.75), value: selectedDetent)
             }
             .overlay(alignment: .bottomLeading) {
+                Group {
+                    if selectedDetent != .large {
+                        Group {
+                            if #available(iOS 26, *) {
+                                GlassEffectContainer {
+                                    openFilesButton
+                                }
+                            } else {
+                                openFilesButton
+                            }
+                        }
+                        .transition(.scale(scale: 0.5).combined(with: .opacity))
+                    }
+                }
+                .padding(.leading, 16)
+                .padding(.bottom, locationButtonBottomPadding)
+                .animation(.spring(response: 0.4, dampingFraction: 0.75), value: selectedDetent)
+            }
+            .overlay(alignment: .bottomLeading) {
                 if let progress = appState.loadingProgress {
                     ProgressView(value: progress)
                         .frame(width: 160)
@@ -102,21 +122,25 @@ struct ContentView: View {
                 }
             }
             .sheet(isPresented: .constant(true)) {
-                RouteListView()
-                    .fileImporter(
-                        isPresented: $appState.showingFilePicker,
-                        allowedContentTypes: [UTType(importedAs: "com.topografix.gpx"), .xml],
-                        allowsMultipleSelection: true
-                    ) { result in
-                        if case .success(let urls) = result {
-                            appState.loadURLs(urls)
-                        }
+                RouteListView(searchText: $searchText, selectedDetent: $selectedDetent)
+                    .onChange(of: searchText) { _, newValue in
+                        if !newValue.isEmpty { selectedDetent = .large }
                     }
-                    .presentationDetents([.height(80), .medium, .large], selection: $selectedDetent)
-                    .presentationDragIndicator(.visible)
-                    .presentationBackgroundInteraction(.enabled(upThrough: .medium))
-                    .presentationCornerRadius(20)
-                    .interactiveDismissDisabled(true)
+                .fileImporter(
+                    isPresented: $appState.showingFilePicker,
+                    allowedContentTypes: [UTType(importedAs: "com.topografix.gpx"), .xml],
+                    allowsMultipleSelection: true
+                ) { result in
+                    if case .success(let urls) = result {
+                        appState.loadURLs(urls)
+                    }
+                }
+                .presentationDetents([.height(80), .medium, .large], selection: $selectedDetent)
+                .presentationDragIndicator(.visible)
+                .presentationBackgroundInteraction(.enabled(upThrough: .medium))
+                .presentationBackground(.ultraThinMaterial)
+                .presentationCornerRadius(20)
+                .interactiveDismissDisabled(true)
             }
         #endif
     }
@@ -124,7 +148,7 @@ struct ContentView: View {
     #if os(iOS)
     private var locationButtonBottomPadding: CGFloat {
         let H = UIScreen.main.bounds.height
-        let margin: CGFloat = 8
+        let margin: CGFloat = -8
         if selectedDetent == .height(80) {
             return 80 + margin
         } else {
@@ -145,9 +169,24 @@ struct ContentView: View {
         #if os(macOS)
         .help("Zoom to current location")
         #else
+        .padding(8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
         .buttonStyle(.plain)
         #endif
     }
+
+    #if os(iOS)
+    private var openFilesButton: some View {
+        Button(action: { appState.openFilePicker() }) {
+            Image(systemName: "plus")
+                .padding(4)
+                .shadow(radius: 3)
+        }
+        .padding(8)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .buttonStyle(.plain)
+    }
+    #endif
 
     #if os(macOS)
     private func handleDrop(providers: [NSItemProvider]) -> Bool {

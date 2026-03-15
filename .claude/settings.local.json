@@ -11,7 +11,8 @@
       "Bash(grep -r \"GPXViewer\\\\|GPX Viewer\\\\|GPX-viewer\\\\|gpx-viewer\\\\|gpxviewer\" /Users/piotrek/Projects/GPX-viewer/GPXViewer/ --include=\"*.swift\" --include=\"*.plist\" -l 2>/dev/null; echo \"---\"; grep -r \"GPXViewer\\\\|GPX Viewer\" /Users/piotrek/Projects/GPX-viewer/GPXViewer.xcodeproj/project.pbxproj | head -30)",
       "Bash(git mv:*)",
       "Bash(perl:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(chmod:*)"
     ]
   }
 }

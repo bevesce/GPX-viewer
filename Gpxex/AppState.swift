@@ -19,6 +19,8 @@ class AppState: ObservableObject {
     private let loadQueue = DispatchQueue(label: "gpx.load", qos: .userInitiated)
     #if os(macOS)
     private static let savedURLsKey = "savedRouteURLs"
+    #else
+    private static let savedBookmarksKey = "savedRouteBookmarks"
     #endif
 
     init() {
@@ -27,6 +29,19 @@ class AppState: ObservableObject {
             let urls = strings.compactMap { URL(string: $0) }
             if !urls.isEmpty { loadURLs(urls) }
         }
+        #else
+        let dataArray = UserDefaults.standard.array(forKey: Self.savedBookmarksKey) as? [Data] ?? []
+        let resolved = dataArray.compactMap { data -> URL? in
+            var isStale = false
+            guard let url = try? URL(
+                resolvingBookmarkData: data,
+                options: .withoutUI,
+                relativeTo: nil,
+                bookmarkDataIsStale: &isStale
+            ) else { return nil }
+            return url
+        }
+        if !resolved.isEmpty { loadURLs(resolved) }
         #endif
     }
 
@@ -34,6 +49,15 @@ class AppState: ObservableObject {
     private func persistRouteURLs() {
         let strings = routes.map { $0.fileURL.absoluteString }
         UserDefaults.standard.set(strings, forKey: Self.savedURLsKey)
+    }
+    #else
+    private func persistRouteBookmarks() {
+        let bookmarks = routes.compactMap { route -> Data? in
+            _ = route.fileURL.startAccessingSecurityScopedResource()
+            defer { route.fileURL.stopAccessingSecurityScopedResource() }
+            return try? route.fileURL.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
+        }
+        UserDefaults.standard.set(bookmarks, forKey: Self.savedBookmarksKey)
     }
     #endif
 
@@ -132,6 +156,8 @@ class AppState: ObservableObject {
                 self?.loadingProgress = nil
                 #if os(macOS)
                 self?.persistRouteURLs()
+                #else
+                self?.persistRouteBookmarks()
                 #endif
                 NotificationCenter.default.post(name: .fitAllRoutes, object: nil)
             }
@@ -145,6 +171,8 @@ class AppState: ObservableObject {
         if hoveredRouteId == id { hoveredRouteId = nil }
         #if os(macOS)
         persistRouteURLs()
+        #else
+        persistRouteBookmarks()
         #endif
     }
 
@@ -156,6 +184,8 @@ class AppState: ObservableObject {
         if let h = hoveredRouteId, ids.contains(h) { hoveredRouteId = nil }
         #if os(macOS)
         persistRouteURLs()
+        #else
+        persistRouteBookmarks()
         #endif
     }
 
