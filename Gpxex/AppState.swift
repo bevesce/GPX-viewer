@@ -17,17 +17,57 @@ class AppState: ObservableObject {
     var lastClickedRouteId: UUID? = nil
 
     private let loadQueue = DispatchQueue(label: "gpx.load", qos: .userInitiated)
-    #if os(macOS)
-    private static let savedURLsKey = "savedRouteURLs"
-    #else
+    #if !os(macOS)
+    // macOS session is stored in "savedSessionTabs" ([[String]]) by persistRouteURLs()
+    // iOS still uses per-file security-scoped bookmarks
     private static let savedBookmarksKey = "savedRouteBookmarks"
     #endif
 
+    // Only the first AppState ever created restores routes from UserDefaults.
+    // Subsequent instances (new tabs) start empty unless given pending routes.
+    static var firstInstanceCreated = false
+
+    // Set to true when the instance is pre-loaded with routes (new tab from selection).
+    // ContentView reads this once on appear to trigger a fit, then clears it.
+    var fitOnAppear = false
+
     init() {
+        AppStateRegistry.shared.register(self)
+
+        // Path 1: new tab opened from selection (routes already parsed)
+        if let pending = PendingTabRoutes.shared.dequeue() {
+            routes = pending
+            fitOnAppear = true
+            return
+        }
+
+        // Path 2: session restore for non-first tab
+        if let pendingURLs = PendingTabRoutes.shared.dequeueURLs() {
+            loadURLs(pendingURLs)
+            fitOnAppear = true
+            return
+        }
+
+        guard !AppState.firstInstanceCreated else { return }
+        AppState.firstInstanceCreated = true
+
         #if os(macOS)
-        if let strings = UserDefaults.standard.stringArray(forKey: Self.savedURLsKey) {
-            let urls = strings.compactMap { URL(string: $0) }
+        // If launched via "Open With", load those files instead of restoring session
+        if AppLaunchState.shared.openedWithFiles {
+            let urls = AppLaunchState.shared.filesToOpen
+            AppLaunchState.shared.filesToOpen = []
             if !urls.isEmpty { loadURLs(urls) }
+            return
+        }
+        // Restore saved session: first tab loads directly; remaining tabs are enqueued
+        if let tabArrays = UserDefaults.standard.array(forKey: "savedSessionTabs") as? [[String]] {
+            let allTabURLs = tabArrays.map { $0.compactMap { URL(string: $0) } }
+            if let firstTab = allTabURLs.first, !firstTab.isEmpty {
+                loadURLs(firstTab)
+            }
+            for tab in allTabURLs.dropFirst() where !tab.isEmpty {
+                PendingTabRoutes.shared.enqueueURLs(tab)
+            }
         }
         #else
         let dataArray = UserDefaults.standard.array(forKey: Self.savedBookmarksKey) as? [Data] ?? []
@@ -45,10 +85,17 @@ class AppState: ObservableObject {
         #endif
     }
 
+    deinit {
+        AppStateRegistry.shared.unregister(self)
+    }
+
     #if os(macOS)
     private func persistRouteURLs() {
-        let strings = routes.map { $0.fileURL.absoluteString }
-        UserDefaults.standard.set(strings, forKey: Self.savedURLsKey)
+        // Save the full session (all tabs) so every write is complete
+        let allTabs = AppStateRegistry.shared.states.map { state in
+            state.routes.map { $0.fileURL.absoluteString }
+        }
+        UserDefaults.standard.set(allTabs, forKey: "savedSessionTabs")
     }
     #else
     private func persistRouteBookmarks() {
@@ -159,7 +206,7 @@ class AppState: ObservableObject {
                 #else
                 self?.persistRouteBookmarks()
                 #endif
-                NotificationCenter.default.post(name: .fitAllRoutes, object: nil)
+                NotificationCenter.default.post(name: .fitAllRoutes, object: self)
             }
         }
     }
@@ -211,13 +258,14 @@ class AppState: ObservableObject {
             }
             lastClickedRouteId = route.id
         } else {
-            // Plain click: select only this route, or deselect if it's the only one
+            // Plain click: select only this route, or deselect if it's the only one selected
             if selectedRouteIds == [route.id] {
                 selectedRouteIds = []
+                lastClickedRouteId = nil  // no anchor when nothing is selected
             } else {
                 selectedRouteIds = [route.id]
+                lastClickedRouteId = route.id
             }
-            lastClickedRouteId = route.id
         }
     }
     #else
@@ -262,3 +310,38 @@ class AppState: ObservableObject {
         #endif
     }
 }
+
+/// Passes a set of routes from "Open Selected in New Tab" to the next AppState init.
+/// Also holds URL sets for session restore of non-first tabs.
+/// All access is on the main thread (UI actions → window creation), so no locking needed.
+class PendingTabRoutes {
+    static let shared = PendingTabRoutes()
+    private var routeQueue: [[GPXRoute]] = []
+    private var urlQueue: [[URL]] = []
+
+    func enqueue(_ routes: [GPXRoute]) { routeQueue.append(routes) }
+    func dequeue() -> [GPXRoute]? { routeQueue.isEmpty ? nil : routeQueue.removeFirst() }
+
+    func enqueueURLs(_ urls: [URL]) { urlQueue.append(urls) }
+    func dequeueURLs() -> [URL]? { urlQueue.isEmpty ? nil : urlQueue.removeFirst() }
+
+    var pendingURLTabCount: Int { urlQueue.count }
+}
+
+/// Tracks all live AppState instances in creation order (main-thread only).
+class AppStateRegistry {
+    static let shared = AppStateRegistry()
+    private(set) var states: [AppState] = []
+
+    func register(_ state: AppState) { states.append(state) }
+    func unregister(_ state: AppState) { states.removeAll { $0 === state } }
+}
+
+#if os(macOS)
+/// Set by AppDelegate before any AppState is created when launched via "Open With".
+class AppLaunchState {
+    static let shared = AppLaunchState()
+    var openedWithFiles = false
+    var filesToOpen: [URL] = []
+}
+#endif

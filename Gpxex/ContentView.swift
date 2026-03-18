@@ -2,14 +2,50 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct ContentView: View {
-    @EnvironmentObject var appState: AppState
+    @StateObject private var appState = AppState()
     @State private var isDropTargeted = false
     @State private var searchText = ""
     #if os(iOS)
     @State private var selectedDetent: PresentationDetent = .height(80)
     #endif
 
+    #if os(macOS)
+    @Environment(\.openWindow) var openWindow
+
+    private var windowTitle: String {
+        switch appState.routes.count {
+        case 0: return "Gpxex"
+        case 1: return appState.routes[0].fileName
+        default: return "\(appState.routes.count) routes"
+        }
+    }
+    #endif
+
     var body: some View {
+        mainContent
+            .environmentObject(appState)
+            #if os(macOS)
+            .focusedSceneObject(appState)
+            .background(WindowConfigurator(title: windowTitle))
+            .onAppear {
+                if appState.fitOnAppear {
+                    appState.fitOnAppear = false
+                    DispatchQueue.main.async {
+                        NotificationCenter.default.post(name: .fitAllRoutes, object: appState)
+                    }
+                }
+                // Restore additional session tabs (only runs once, for the first window)
+                let extraTabs = PendingTabRoutes.shared.pendingURLTabCount
+                if extraTabs > 0 {
+                    for _ in 0..<extraTabs {
+                        openWindow(id: "main")
+                    }
+                }
+            }
+            #endif
+    }
+
+    private var mainContent: some View {
         #if os(macOS)
         NavigationSplitView {
             RouteListView(searchText: $searchText)
@@ -75,18 +111,10 @@ struct ContentView: View {
             .overlay(alignment: .bottomTrailing) {
                 Group {
                     if selectedDetent != .large {
-                        Group {
-                            if #available(iOS 26, *) {
-                                GlassEffectContainer {
-                                    locationButton
-                                }
-                                    .padding(.trailing, 16)
-                                .padding(.bottom, locationButtonBottomPadding)
-                            } else {
-                                locationButton
-                            }
-                        }
-                        .transition(.scale(scale: 0.5).combined(with: .opacity))
+                        iOSMapControls
+                            .padding(.trailing, 16)
+                            .padding(.bottom, locationButtonBottomPadding)
+                            .transition(.scale(scale: 0.5).combined(with: .opacity))
                     }
                 }
                 .animation(.spring(response: 0.4, dampingFraction: 0.75), value: selectedDetent)
@@ -159,23 +187,43 @@ struct ContentView: View {
 
     private var locationButton: some View {
         Button(action: {
-            NotificationCenter.default.post(name: .zoomToUserLocation, object: nil)
+            NotificationCenter.default.post(name: .zoomToUserLocation, object: appState)
         }) {
             Image(systemName: "location.fill")
                 .padding(4)
                 .shadow(radius: 3)
-            
         }
-        #if os(macOS)
         .help("Zoom to current location")
-        #else
-        .padding(8)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
-        .buttonStyle(.plain)
-        #endif
     }
 
     #if os(iOS)
+    private var iOSMapControls: some View {
+        VStack(spacing: 0) {
+            Button(action: {
+                NotificationCenter.default.post(name: .fitAllRoutes, object: appState)
+            }) {
+                Image(systemName: "arrow.up.and.down.and.arrow.left.and.right")
+                    .frame(width: 24, height: 24)
+                    .padding(8)
+            }
+            .buttonStyle(.plain)
+            .disabled(appState.routes.isEmpty)
+
+            Divider()
+
+            Button(action: {
+                NotificationCenter.default.post(name: .zoomToUserLocation, object: appState)
+            }) {
+                Image(systemName: "location.fill")
+                    .frame(width: 24, height: 24)
+                    .padding(8)
+            }
+            .buttonStyle(.plain)
+        }
+        .fixedSize()
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+    }
+
     private var openFilesButton: some View {
         Button(action: { appState.openFilePicker() }) {
             Image(systemName: "plus")
@@ -213,9 +261,50 @@ struct ContentView: View {
     #endif
 }
 
+#if os(macOS)
+/// Handles two jobs for each ContentView window:
+/// - makeNSView: attaches the new window as a tab after the currently selected
+///   tab (if any other content window is open).
+/// - updateNSView: keeps the window/tab title in sync with the route list.
+private struct WindowConfigurator: NSViewRepresentable {
+    let title: String
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView()
+        DispatchQueue.main.async {
+            guard let newWindow = view.window else { return }
+            newWindow.tabbingMode = .preferred
+            let existing = NSApp.windows.first {
+                $0 !== newWindow && $0.isVisible
+                    && !($0 is NSPanel)
+                    && $0.contentViewController != nil
+            }
+            if let existing {
+                let insertAfter = existing.tabGroup?.selectedWindow ?? existing
+                insertAfter.addTabbedWindow(newWindow, ordered: .above)
+                newWindow.makeKeyAndOrderFront(nil)
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        // Defer so we run after SwiftUI's own NavigationSplitView title pass.
+        // Also set tab.title, which controls the tab strip label independently
+        // from the title bar (and is not touched by SwiftUI).
+        let t = title
+        DispatchQueue.main.async {
+            nsView.window?.title = t
+            nsView.window?.tab.title = t
+        }
+    }
+}
+#endif
+
 extension Notification.Name {
     static let fitAllRoutes       = Notification.Name("fitAllRoutes")
     static let zoomToRoute        = Notification.Name("zoomToRoute")
+    static let zoomToRoutes       = Notification.Name("zoomToRoutes")
     static let scrollToRoute      = Notification.Name("scrollToRoute")
     static let zoomToUserLocation = Notification.Name("zoomToUserLocation")
 }

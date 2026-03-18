@@ -137,7 +137,6 @@ struct RouteListView: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         #endif
-        .background(.thickMaterial)
     }
 
     private var searchBarBackground: Color {
@@ -219,6 +218,9 @@ struct RouteRowView: View {
     let route: GPXRoute
     let allRoutes: [GPXRoute]
     @EnvironmentObject var appState: AppState
+    #if os(macOS)
+    @Environment(\.openWindow) var openWindow
+    #endif
     @State private var isHovering = false
     #if os(macOS)
     @State private var showingRename = false
@@ -228,32 +230,34 @@ struct RouteRowView: View {
     private var isHighlighted: Bool { appState.hoveredRouteId == route.id }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // Title row
-            HStack(spacing: 10) {
-                RoundedRectangle(cornerRadius: 3)
-                    .fill(route.color.swiftUI)
-                    .frame(width: 14, height: 14)
-                    .shadow(color: route.color.swiftUI.opacity(0.4), radius: 2)
+        HStack(alignment: .center, spacing: 0) {
+            VStack(alignment: .leading, spacing: 4) {
+                // Title row
+                HStack(spacing: 10) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(route.color.swiftUI)
+                        .frame(width: 14, height: 14)
+                        .shadow(color: route.color.swiftUI.opacity(0.4), radius: 2)
 
-                Text(route.fileName)
-                    .font(.system(size: 13))
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                    Text(route.fileName)
+                        .font(.system(size: 13))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
 
-                Spacer()
-
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(route.color.swiftUI)
-                        .font(.system(size: 14))
+                // Stats row
+                if route.startTime != nil || route.totalDistance > 0 {
+                    statsView
+                        .padding(.leading, 24)
                 }
             }
 
-            // Stats row
-            if route.startTime != nil || route.totalDistance > 0 {
-                statsView
-                    .padding(.leading, 24)
+            Spacer()
+
+            if isSelected {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(route.color.swiftUI)
+                    .font(.system(size: 14))
             }
         }
         .padding(.horizontal, 12)
@@ -278,16 +282,38 @@ struct RouteRowView: View {
             #endif
         }
         .contextMenu {
-            Button("Zoom to Route") {
-                NotificationCenter.default.post(name: .zoomToRoute, object: route.id)
+            Button(appState.selectedRouteIds.contains(route.id) && appState.selectedRouteIds.count > 1
+                   ? "Zoom to Selected" : "Zoom to Route") {
+                if appState.selectedRouteIds.contains(route.id) && appState.selectedRouteIds.count > 1 {
+                    NotificationCenter.default.post(name: .zoomToRoutes, object: Array(appState.selectedRouteIds))
+                } else {
+                    NotificationCenter.default.post(name: .zoomToRoute, object: route.id)
+                }
             }
             #if os(macOS)
+            Button("Open in New Tab") {
+                let selected = appState.selectedRouteIds
+                let routesToOpen: [GPXRoute]
+                if selected.contains(route.id) {
+                    routesToOpen = appState.routes.filter { selected.contains($0.id) }
+                } else {
+                    routesToOpen = [route]
+                }
+                PendingTabRoutes.shared.enqueue(routesToOpen)
+                openWindow(id: "main")
+            }
+            Divider()
             Button("Edit") {
                 showingRename = true
             }
             #endif
-            Button("Remove") {
-                appState.removeRoute(id: route.id)
+            Button(appState.selectedRouteIds.contains(route.id) && appState.selectedRouteIds.count > 1
+                   ? "Remove Selected" : "Remove") {
+                if appState.selectedRouteIds.contains(route.id) {
+                    appState.removeSelectedRoutes()
+                } else {
+                    appState.removeRoute(id: route.id)
+                }
             }
         }
         #if os(macOS)

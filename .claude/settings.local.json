@@ -12,7 +12,8 @@
       "Bash(git mv:*)",
       "Bash(perl:*)",
       "Bash(grep:*)",
-      "Bash(chmod:*)"
+      "Bash(chmod:*)",
+      "Bash(wc:*)"
     ]
   }
 }

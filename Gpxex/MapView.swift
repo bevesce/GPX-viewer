@@ -426,6 +426,22 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDe
         applyRegion(mapView, minLat: b.minLat, maxLat: b.maxLat, minLon: b.minLon, maxLon: b.maxLon)
     }
 
+    @objc func handleZoomToRoutes(_ notification: Notification) {
+        guard let ids = notification.object as? [UUID], let mapView else { return }
+        let routes = ids.compactMap { routeIndex[$0] }
+        guard !routes.isEmpty else { return }
+        var minLat =  Double.infinity, maxLat = -Double.infinity
+        var minLon =  Double.infinity, maxLon = -Double.infinity
+        for route in routes {
+            let b = route.boundingBox
+            if b.minLat < minLat { minLat = b.minLat }
+            if b.maxLat > maxLat { maxLat = b.maxLat }
+            if b.minLon < minLon { minLon = b.minLon }
+            if b.maxLon > maxLon { maxLon = b.maxLon }
+        }
+        applyRegion(mapView, minLat: minLat, maxLat: maxLat, minLon: minLon, maxLon: maxLon)
+    }
+
     private func isLocationAuthorized(_ status: CLAuthorizationStatus) -> Bool {
         #if os(macOS)
         return status == .authorized || status == .authorizedAlways
@@ -509,7 +525,7 @@ struct MapView: NSViewRepresentable {
             context.coordinator,
             selector: #selector(MapViewCoordinator.handleFitAll),
             name: .fitAllRoutes,
-            object: nil
+            object: appState
         )
         NotificationCenter.default.addObserver(
             context.coordinator,
@@ -519,9 +535,15 @@ struct MapView: NSViewRepresentable {
         )
         NotificationCenter.default.addObserver(
             context.coordinator,
+            selector: #selector(MapViewCoordinator.handleZoomToRoutes(_:)),
+            name: .zoomToRoutes,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
             selector: #selector(MapViewCoordinator.handleZoomToUserLocation),
             name: .zoomToUserLocation,
-            object: nil
+            object: appState
         )
         return mapView
     }
@@ -563,7 +585,7 @@ struct MapView: UIViewRepresentable {
             context.coordinator,
             selector: #selector(MapViewCoordinator.handleFitAll),
             name: .fitAllRoutes,
-            object: nil
+            object: appState
         )
         NotificationCenter.default.addObserver(
             context.coordinator,
@@ -573,9 +595,15 @@ struct MapView: UIViewRepresentable {
         )
         NotificationCenter.default.addObserver(
             context.coordinator,
+            selector: #selector(MapViewCoordinator.handleZoomToRoutes(_:)),
+            name: .zoomToRoutes,
+            object: nil
+        )
+        NotificationCenter.default.addObserver(
+            context.coordinator,
             selector: #selector(MapViewCoordinator.handleZoomToUserLocation),
             name: .zoomToUserLocation,
-            object: nil
+            object: appState
         )
         return mapView
     }
