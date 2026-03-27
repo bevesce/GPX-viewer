@@ -32,6 +32,7 @@ private func formatDuration(_ interval: TimeInterval) -> String {
 private func formatDistance(_ metres: Double) -> String {
     if metres >= 1000 {
         let km = metres / 1000
+        if km == km.rounded() { return String(format: "%.0f km", km) }
         return String(format: km >= 100 ? "%.0f km" : "%.1f km", km)
     } else {
         return String(format: "%.0f m", metres)
@@ -48,18 +49,29 @@ struct RouteListView: View {
     @FocusState private var searchFocused: Bool
     #endif
 
+    private var maxRouteDistance: Double { appState.maxRouteDistance }
+
+    private var isDistanceFiltered: Bool {
+        let maxDist = maxRouteDistance
+        return maxDist > 0 && (appState.distanceFilterLow > 1 || appState.distanceFilterHigh < maxDist - 1)
+    }
+
     private var filteredRoutes: [GPXRoute] {
-        let base: [GPXRoute]
-        if searchText.isEmpty {
-            base = appState.routes
-        } else {
+        var base = appState.routes
+
+        if !searchText.isEmpty {
             let q = searchText.lowercased()
-            base = appState.routes.filter { route in
+            base = base.filter { route in
                 if route.fileName.lowercased().contains(q) { return true }
                 if let date = route.startTime, dateFormatter.string(from: date).contains(q) { return true }
                 return false
             }
         }
+
+        if isDistanceFiltered {
+            base = base.filter { $0.totalDistance >= appState.distanceFilterLow && $0.totalDistance <= appState.distanceFilterHigh }
+        }
+
         return base.sorted { lhs, rhs in
             switch (lhs.startTime, rhs.startTime) {
             case (let a?, let b?): return a > b
@@ -72,18 +84,28 @@ struct RouteListView: View {
 
     var body: some View {
         #if os(iOS)
-//        HStack {
-//            searchBar
-//                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-//        }
-//        .padding(20)
         content
-            .safeAreaInset(edge: .top, spacing: 0) { searchBar }
+            .safeAreaInset(edge: .top, spacing: 0) { filterHeader }
         #else
-        searchBar
+        filterHeader
         content
-//            .safeAreaInset(edge: .top, spacing: 0) {  }
         #endif
+    }
+
+    private var filterHeader: some View {
+        VStack(spacing: 0) {
+            searchBar
+            if maxRouteDistance > 0 {
+                distanceFilterView
+            }
+        }
+        .onChange(of: maxRouteDistance) { _, newMax in
+            if newMax > 0 && appState.distanceFilterHigh < 1 {
+                appState.distanceFilterHigh = newMax
+            } else if newMax > appState.distanceFilterHigh && !isDistanceFiltered {
+                appState.distanceFilterHigh = newMax
+            }
+        }
     }
 
     private var content: some View {
@@ -97,6 +119,38 @@ struct RouteListView: View {
                 routeList
             }
         }
+        #endif
+    }
+
+    private var distanceFilterView: some View {
+        VStack(spacing: 4) {
+            HStack {
+                Text("Distance")
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                Spacer()
+                if isDistanceFiltered {
+                    Button("Reset") {
+                        appState.distanceFilterLow = 0
+                        appState.distanceFilterHigh = maxRouteDistance
+                    }
+                    .font(.system(size: 11))
+                    .buttonStyle(.plain)
+                    .foregroundColor(.accentColor)
+                }
+            }
+            DistanceRangeSlider(
+                low: Binding(get: { appState.distanceFilterLow }, set: { appState.distanceFilterLow = $0 }),
+                high: Binding(get: { appState.distanceFilterHigh }, set: { appState.distanceFilterHigh = $0 }),
+                maxDistance: maxRouteDistance
+            )
+        }
+        #if os(iOS)
+        .padding(.horizontal, 20)
+        .padding(.bottom, 14)
+        #else
+        .padding(.horizontal, 12)
+        .padding(.bottom, 8)
         #endif
     }
 
@@ -365,6 +419,89 @@ struct RouteRowView: View {
                 Color.clear
             }
         }
+    }
+}
+
+// MARK: - DistanceRangeSlider
+
+struct DistanceRangeSlider: View {
+    @Binding var low: Double    // metres
+    @Binding var high: Double   // metres
+    let maxDistance: Double     // metres
+
+    private let thumbR: CGFloat = 10
+    private let trackH: CGFloat = 4
+
+    var body: some View {
+        VStack(spacing: 5) {
+            GeometryReader { geo in
+                let W = geo.size.width
+                let tH = thumbR * 2
+                let tY = tH / 2
+                let tStart = thumbR
+                let tEnd = W - thumbR
+                let tW = tEnd - tStart
+                let lowX  = tStart + CGFloat(low  / maxDistance) * tW
+                let highX = tStart + CGFloat(high / maxDistance) * tW
+
+                ZStack {
+                    // Background track
+                    Capsule()
+                        .fill(Color.secondary.opacity(0.2))
+                        .frame(width: tW, height: trackH)
+                        .position(x: W / 2, y: tY)
+
+                    // Active range
+                    Capsule()
+                        .fill(Color.accentColor.opacity(0.5))
+                        .frame(width: max(highX - lowX, 0), height: trackH)
+                        .position(x: (lowX + highX) / 2, y: tY)
+
+                    // Low thumb
+                    thumbShape
+                        .position(x: lowX, y: tY)
+                        .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("distSlider"))
+                            .onChanged { v in
+                                let cHighX = tStart + CGFloat(high / maxDistance) * tW
+                                let newX = min(max(v.location.x, tStart), cHighX - 2)
+                                let raw = max(0.0, Double((newX - tStart) / tW) * maxDistance)
+                                low = (raw / 1000).rounded() * 1000
+                            }
+                        )
+
+                    // High thumb
+                    thumbShape
+                        .position(x: highX, y: tY)
+                        .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .named("distSlider"))
+                            .onChanged { v in
+                                let cLowX = tStart + CGFloat(low / maxDistance) * tW
+                                let newX = min(max(v.location.x, cLowX + 2), tEnd)
+                                let raw = min(maxDistance, Double((newX - tStart) / tW) * maxDistance)
+                                high = raw >= maxDistance - 500 ? maxDistance : (raw / 1000).rounded() * 1000
+                            }
+                        )
+                }
+                .coordinateSpace(name: "distSlider")
+                .frame(width: W, height: tH)
+            }
+            .frame(height: thumbR * 2)
+
+            HStack {
+                Text(formatDistance(low))
+                Spacer()
+                Text(formatDistance(high))
+            }
+            .font(.system(size: 10))
+            .foregroundColor(.secondary)
+        }
+    }
+
+    private var thumbShape: some View {
+        Circle()
+            .fill(Color.white)
+            .overlay(Circle().strokeBorder(Color.accentColor, lineWidth: 1.5))
+            .shadow(color: .black.opacity(0.15), radius: 2, y: 1)
+            .frame(width: thumbR * 2, height: thumbR * 2)
     }
 }
 

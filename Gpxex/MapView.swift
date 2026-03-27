@@ -67,6 +67,7 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDe
     weak var mapView: MKMapView?
 
     var lastRouteIds: [UUID] = []
+    var lastFilteredRouteIds: Set<UUID> = []
     var lastSelectedIds: Set<UUID> = []
     var lastHoveredId: UUID? = nil
 
@@ -139,6 +140,7 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDe
         }
 
         // Rebuild only the color groups that gained or lost routes
+        let filtered = appState.filteredRouteIds
         for slot in dirtySlots {
             if let old = groupOverlays.removeValue(forKey: slot) {
                 mapView.removeOverlay(old)
@@ -146,7 +148,7 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDe
             groupRenderers.removeValue(forKey: slot)
 
             let members = routeIndex.values
-                .filter { $0.colorIndex % routeColorPalette.count == slot }
+                .filter { $0.colorIndex % routeColorPalette.count == slot && filtered.contains($0.id) }
                 .compactMap { polylineStore[$0.id] }
 
             guard !members.isEmpty else { continue }
@@ -167,6 +169,52 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDe
         }
 
         lastRouteIds = appState.routes.map { $0.id }
+        lastFilteredRouteIds = filtered
+    }
+
+    func rebuildAllGroupOverlays(on mapView: MKMapView) {
+        let filtered = appState.filteredRouteIds
+        let allSlots = Set(routeIndex.values.map { $0.colorIndex % routeColorPalette.count })
+
+        for slot in allSlots {
+            if let old = groupOverlays.removeValue(forKey: slot) {
+                mapView.removeOverlay(old)
+            }
+            groupRenderers.removeValue(forKey: slot)
+
+            let members = routeIndex.values
+                .filter { $0.colorIndex % routeColorPalette.count == slot && filtered.contains($0.id) }
+                .compactMap { polylineStore[$0.id] }
+
+            guard !members.isEmpty else { continue }
+
+            let multi = MKMultiPolyline(members)
+            multi.title = String(slot)
+            groupOverlays[slot] = multi
+
+            if let lowestActive = mapView.overlays.first(where: { overlay in
+                guard let poly = overlay as? MKPolyline else { return false }
+                return activePolylines.values.contains { $0 === poly }
+            }) {
+                mapView.insertOverlay(multi, below: lowestActive)
+            } else {
+                mapView.addOverlay(multi, level: .aboveRoads)
+            }
+        }
+
+        // Remove active overlays for routes now outside the filter
+        let toRemove = activeIds.filter { !filtered.contains($0) }
+        for id in toRemove {
+            activeIds.remove(id)
+            if let poly = activePolylines.removeValue(forKey: id) {
+                mapView.removeOverlay(poly)
+            }
+            activeRenderers.removeValue(forKey: id)
+        }
+
+        lastFilteredRouteIds = filtered
+        lastSelectedIds = appState.selectedRouteIds
+        lastHoveredId = appState.hoveredRouteId
     }
 
     // MARK: Active state (hover / selection)
@@ -369,8 +417,9 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDe
         let padLon = Double(threshold) * spanLon / w
 
         var best: (id: UUID, dist: CGFloat)? = nil
+        let filtered = appState.filteredRouteIds
 
-        for (routeId, route) in routeIndex {
+        for (routeId, route) in routeIndex where filtered.contains(routeId) {
             let b = route.boundingBox
             guard coord.latitude  >= b.minLat - padLat,
                   coord.latitude  <= b.maxLat + padLat,
@@ -551,9 +600,12 @@ struct MapView: NSViewRepresentable {
     func updateNSView(_ mapView: HoverableMapView, context: Context) {
         let coord = context.coordinator
         let currentIds = appState.routes.map { $0.id }
+        let filtered = appState.filteredRouteIds
 
         if currentIds != coord.lastRouteIds {
             coord.updateOverlays(on: mapView)
+        } else if filtered != coord.lastFilteredRouteIds {
+            coord.rebuildAllGroupOverlays(on: mapView)
         } else if appState.selectedRouteIds != coord.lastSelectedIds
                     || appState.hoveredRouteId != coord.lastHoveredId {
             coord.updateActiveState(on: mapView)
@@ -611,9 +663,12 @@ struct MapView: UIViewRepresentable {
     func updateUIView(_ mapView: MKMapView, context: Context) {
         let coord = context.coordinator
         let currentIds = appState.routes.map { $0.id }
+        let filtered = appState.filteredRouteIds
 
         if currentIds != coord.lastRouteIds {
             coord.updateOverlays(on: mapView)
+        } else if filtered != coord.lastFilteredRouteIds {
+            coord.rebuildAllGroupOverlays(on: mapView)
         } else if appState.selectedRouteIds != coord.lastSelectedIds
                     || appState.hoveredRouteId != coord.lastHoveredId {
             coord.updateActiveState(on: mapView)

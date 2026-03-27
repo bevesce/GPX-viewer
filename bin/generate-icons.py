@@ -3,8 +3,8 @@
 Generate all required iOS and macOS app icon sizes.
 
 Sources (relative to project root):
-  mac-icon.png  — macOS icon, will get rounded squircle corners
-  ios-icon.png  — iOS/iPadOS icon, square (iOS applies its own corner mask)
+  icon-mac.png  — macOS icon, will get rounded squircle corners
+  icon-ios.png  — iOS/iPadOS icon, square (iOS applies its own corner mask)
 
 Output: Gpxex/Assets.xcassets/AppIcon.appiconset/
 """
@@ -17,8 +17,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_DIR = os.path.dirname(SCRIPT_DIR)
 OUT_DIR = os.path.join(PROJECT_DIR, "Gpxex", "Assets.xcassets", "AppIcon.appiconset")
 
-MAC_SRC = os.path.join(PROJECT_DIR, "mac-icon.png")
-IOS_SRC = os.path.join(PROJECT_DIR, "ios-icon.png")
+MAC_SRC = os.path.join(PROJECT_DIR, "icon-mac.png")
+IOS_SRC = os.path.join(PROJECT_DIR, "icon-ios.png")
 
 # macOS squircle corner radius ratio (Apple HIG)
 RADIUS_RATIO = 0.2237

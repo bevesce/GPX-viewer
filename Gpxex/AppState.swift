@@ -9,6 +9,20 @@ class AppState: ObservableObject {
     @Published var selectedRouteIds: Set<UUID> = []
     @Published var hoveredRouteId: UUID? = nil
     @Published var loadingProgress: Double? = nil  // nil = idle, 0–1 = loading
+    @Published var distanceFilterLow: Double = 0
+    @Published var distanceFilterHigh: Double = 0
+
+    var maxRouteDistance: Double { routes.map(\.totalDistance).max() ?? 0 }
+
+    var filteredRouteIds: Set<UUID> {
+        let maxDist = maxRouteDistance
+        guard maxDist > 0, distanceFilterLow > 1 || distanceFilterHigh < maxDist - 1 else {
+            return Set(routes.map(\.id))
+        }
+        return Set(routes.filter {
+            $0.totalDistance >= distanceFilterLow && $0.totalDistance <= distanceFilterHigh
+        }.map(\.id))
+    }
     #if !os(macOS)
     @Published var showingFilePicker = false
     #endif
