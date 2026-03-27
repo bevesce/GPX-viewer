@@ -96,9 +96,19 @@ struct RouteListView: View {
         VStack(spacing: 0) {
             searchBar
             if maxRouteDistance > 0 {
+                #if os(iOS)
+                if selectedDetent != .height(80) {
+                    distanceFilterView
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+                #else
                 distanceFilterView
+                #endif
             }
         }
+        #if os(iOS)
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: selectedDetent)
+        #endif
         .onChange(of: maxRouteDistance) { _, newMax in
             if newMax > 0 && appState.distanceFilterHigh < 1 {
                 appState.distanceFilterHigh = newMax
