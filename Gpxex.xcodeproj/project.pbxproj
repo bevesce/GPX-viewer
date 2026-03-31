@@ -7,15 +7,6 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		2454D9542F76680600487E31 /* GpxexApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0000000000000000000011 /* GpxexApp.swift */; };
-		2454D9552F76680600487E31 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0000000000000000000012 /* ContentView.swift */; };
-		2454D9562F76680600487E31 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0000000000000000000013 /* AppState.swift */; };
-		2454D9572F76680600487E31 /* GPXRoute.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0000000000000000000014 /* GPXRoute.swift */; };
-		2454D9582F76680600487E31 /* GPXParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0000000000000000000015 /* GPXParser.swift */; };
-		2454D9592F76680600487E31 /* RouteListView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0000000000000000000016 /* RouteListView.swift */; };
-		2454D95A2F76680600487E31 /* MapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0000000000000000000017 /* MapView.swift */; };
-		2454D95C2F76680600487E31 /* MapKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BF0000000000000000000019 /* MapKit.framework */; };
-		2454D95E2F76680600487E31 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = BF0000000000000000000018 /* Assets.xcassets */; };
 		BF0000000000000000000001 /* GpxexApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0000000000000000000011 /* GpxexApp.swift */; };
 		BF0000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0000000000000000000012 /* ContentView.swift */; };
 		BF0000000000000000000003 /* AppState.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF0000000000000000000013 /* AppState.swift */; };
@@ -28,7 +19,6 @@
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		2454D9622F76680600487E31 /* Gpxex copy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Gpxex copy.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		2454D9632F76680600487E31 /* Gpxex copy-Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; name = "Gpxex copy-Info.plist"; path = "/Users/piotrek/Projects/Gpxex/Gpxex copy-Info.plist"; sourceTree = "<absolute>"; };
 		BF0000000000000000000011 /* GpxexApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GpxexApp.swift; sourceTree = "<group>"; };
 		BF0000000000000000000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -45,14 +35,6 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		2454D95B2F76680600487E31 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				2454D95C2F76680600487E31 /* MapKit.framework in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		BF0000000000000000000032 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -95,7 +77,6 @@
 			isa = PBXGroup;
 			children = (
 				BF000000000000000000001C /* Gpxex.app */,
-				2454D9622F76680600487E31 /* Gpxex copy.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -111,23 +92,6 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		2454D9522F76680600487E31 /* Gpxex copy */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 2454D95F2F76680600487E31 /* Build configuration list for PBXNativeTarget "Gpxex copy" */;
-			buildPhases = (
-				2454D9532F76680600487E31 /* Sources */,
-				2454D95B2F76680600487E31 /* Frameworks */,
-				2454D95D2F76680600487E31 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = "Gpxex copy";
-			productName = Gpxex;
-			productReference = 2454D9622F76680600487E31 /* Gpxex copy.app */;
-			productType = "com.apple.product-type.application";
-		};
 		BF0000000000000000000041 /* Gpxex */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = BF0000000000000000000056 /* Build configuration list for PBXNativeTarget "Gpxex" */;
@@ -174,20 +138,11 @@
 			projectRoot = "";
 			targets = (
 				BF0000000000000000000041 /* Gpxex */,
-				2454D9522F76680600487E31 /* Gpxex copy */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		2454D95D2F76680600487E31 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				2454D95E2F76680600487E31 /* Assets.xcassets in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		BF0000000000000000000033 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -199,20 +154,6 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
-		2454D9532F76680600487E31 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				2454D9542F76680600487E31 /* GpxexApp.swift in Sources */,
-				2454D9552F76680600487E31 /* ContentView.swift in Sources */,
-				2454D9562F76680600487E31 /* AppState.swift in Sources */,
-				2454D9572F76680600487E31 /* GPXRoute.swift in Sources */,
-				2454D9582F76680600487E31 /* GPXParser.swift in Sources */,
-				2454D9592F76680600487E31 /* RouteListView.swift in Sources */,
-				2454D95A2F76680600487E31 /* MapView.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		BF0000000000000000000031 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -230,72 +171,6 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
-		2454D9602F76680600487E31 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
-				CODE_SIGN_ENTITLEMENTS = Gpxex/Gpxex.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = 7V7SU7WHNU;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = "Gpxex copy-Info.plist";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gpxviewer.app;
-				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = com.gpxex.app;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
-		2454D9612F76680600487E31 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
-				CODE_SIGN_ENTITLEMENTS = Gpxex/Gpxex.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = 7V7SU7WHNU;
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = NO;
-				INFOPLIST_FILE = "Gpxex copy-Info.plist";
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				MACOSX_DEPLOYMENT_TARGET = 15.6;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gpxviewer.app;
-				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = com.gpxex.app;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
 		BF0000000000000000000051 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -425,20 +300,21 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = 7V7SU7WHNU;
+				DEVELOPMENT_TEAM = KS8K59QUDG;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Gpxex/Info.plist;
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gpxviewer.app;
-				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = com.gpxex.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.piotr.wilczynski.gpxex.app;
+				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = com.piotr.wilczynski.gpxex.app.ios;
+				"PRODUCT_BUNDLE_IDENTIFIER[sdk=macosx*]" = com.piotr.wilczynski.gpxex.app.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -458,7 +334,7 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
-				DEVELOPMENT_TEAM = 7V7SU7WHNU;
+				DEVELOPMENT_TEAM = KS8K59QUDG;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = Gpxex/Info.plist;
@@ -470,8 +346,9 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 15.6;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.gpxviewer.app;
-				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = com.gpxex.app;
+				PRODUCT_BUNDLE_IDENTIFIER = com.piotr.wilczynski.gpxex.app;
+				"PRODUCT_BUNDLE_IDENTIFIER[sdk=iphoneos*]" = com.piotr.wilczynski.gpxex.app.ios;
+				"PRODUCT_BUNDLE_IDENTIFIER[sdk=macosx*]" = com.piotr.wilczynski.gpxex.app.mac;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
 				SWIFT_EMIT_LOC_STRINGS = YES;
@@ -483,15 +360,6 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
-		2454D95F2F76680600487E31 /* Build configuration list for PBXNativeTarget "Gpxex copy" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				2454D9602F76680600487E31 /* Debug */,
-				2454D9612F76680600487E31 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
 		BF0000000000000000000055 /* Build configuration list for PBXProject "Gpxex" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
