@@ -176,7 +176,9 @@ struct ContentView: View {
     #if os(iOS)
     private var locationButtonBottomPadding: CGFloat {
         let H = UIScreen.main.bounds.height
-        let margin: CGFloat = -8
+        // iOS 26 glass sheet gives enough visual separation with a negative margin;
+        // on iOS 18 the opaque sheet overlaps buttons, so push them above the sheet edge.
+        let margin: CGFloat = if #available(iOS 26, *) { -8 } else { 16 }
         if selectedDetent == .height(80) {
             return 80 + margin
         } else {

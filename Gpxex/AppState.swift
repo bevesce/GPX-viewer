@@ -130,6 +130,13 @@ class AppState: ObservableObject {
         loadQueue.async { [weak self] in
             guard let self else { return }
 
+            #if !os(macOS)
+            // Start security-scoped access before any file system operations — required for
+            // iCloud Drive files, which live outside the app sandbox.
+            for url in urls { _ = url.startAccessingSecurityScopedResource() }
+            defer { urls.forEach { $0.stopAccessingSecurityScopedResource() } }
+            #endif
+
             // Collect all GPX file URLs
             var allURLs: [URL] = []
             for url in urls {
@@ -161,12 +168,6 @@ class AppState: ObservableObject {
             var completed = 0
             var lastReportedFraction = 0.0
             let lock = NSLock()
-
-            #if !os(macOS)
-            // Start security-scoped access for all URLs before concurrent reading
-            for url in newURLs { _ = url.startAccessingSecurityScopedResource() }
-            defer { newURLs.forEach { $0.stopAccessingSecurityScopedResource() } }
-            #endif
 
             DispatchQueue.concurrentPerform(iterations: totalCount) { i in
                 let url = newURLs[i]
