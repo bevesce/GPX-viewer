@@ -11,6 +11,11 @@ class AppState: ObservableObject {
     @Published var loadingProgress: Double? = nil  // nil = idle, 0–1 = loading
     @Published var distanceFilterLow: Double = 0
     @Published var distanceFilterHigh: Double = 0
+    @Published var showOnlyVisibleRoutes = false
+    @Published var visibleBBox: RouteBoundingBox? = nil
+    #if !os(macOS)
+    @Published var longPressedRoute: GPXRoute? = nil
+    #endif
 
     var maxRouteDistance: Double { routes.map(\.totalDistance).max() ?? 0 }
 
@@ -29,12 +34,16 @@ class AppState: ObservableObject {
 
     // Anchor for shift-click range selection — not published (no re-render needed)
     var lastClickedRouteId: UUID? = nil
+    // URLs currently being parsed (main-thread only) — prevents duplicates when loadURLs is called twice before the first finishes
+    private var loadingURLs: Set<URL> = []
 
     private let loadQueue = DispatchQueue(label: "gpx.load", qos: .userInitiated)
     #if !os(macOS)
     // macOS session is stored in "savedSessionTabs" ([[String]]) by persistRouteURLs()
-    // iOS still uses per-file security-scoped bookmarks
+    // iOS uses per-file security-scoped bookmarks plus per-folder bookmarks
     private static let savedBookmarksKey = "savedRouteBookmarks"
+    private static let savedFolderBookmarksKey = "savedFolderBookmarks"
+    @Published var showingFolderPicker = false
     #endif
 
     // Only the first AppState ever created restores routes from UserDefaults.
@@ -84,24 +93,37 @@ class AppState: ObservableObject {
             }
         }
         #else
-        let dataArray = UserDefaults.standard.array(forKey: Self.savedBookmarksKey) as? [Data] ?? []
-        let resolved = dataArray.compactMap { data -> URL? in
-            var isStale = false
-            guard let url = try? URL(
-                resolvingBookmarkData: data,
-                options: .withoutUI,
-                relativeTo: nil,
-                bookmarkDataIsStale: &isStale
-            ) else { return nil }
-            return url
+        func resolveBookmarks(key: String) -> [URL] {
+            (UserDefaults.standard.array(forKey: key) as? [Data] ?? []).compactMap { data -> URL? in
+                var isStale = false
+                return try? URL(resolvingBookmarkData: data, options: .withoutUI, relativeTo: nil, bookmarkDataIsStale: &isStale)
+            }
         }
-        if !resolved.isEmpty { loadURLs(resolved) }
+        // Load folder URLs first so their files appear before individually-opened files;
+        // loadURLs deduplicates by URL so overlap between the two lists is handled correctly.
+        let allURLs = resolveBookmarks(key: Self.savedFolderBookmarksKey)
+                    + resolveBookmarks(key: Self.savedBookmarksKey)
+        if !allURLs.isEmpty { loadURLs(allURLs) }
         #endif
     }
 
     deinit {
         AppStateRegistry.shared.unregister(self)
     }
+
+    #if !os(macOS)
+    func loadFolder(_ url: URL) {
+        // Persist a security-scoped bookmark for the folder so it survives app restarts.
+        _ = url.startAccessingSecurityScopedResource()
+        if let bookmark = try? url.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil) {
+            var saved = UserDefaults.standard.array(forKey: Self.savedFolderBookmarksKey) as? [Data] ?? []
+            saved.append(bookmark)
+            UserDefaults.standard.set(saved, forKey: Self.savedFolderBookmarksKey)
+        }
+        url.stopAccessingSecurityScopedResource()
+        loadURLs([url])
+    }
+    #endif
 
     #if os(macOS)
     private func persistRouteURLs() {
@@ -113,19 +135,26 @@ class AppState: ObservableObject {
     }
     #else
     private func persistRouteBookmarks() {
-        let bookmarks = routes.compactMap { route -> Data? in
-            _ = route.fileURL.startAccessingSecurityScopedResource()
-            defer { route.fileURL.stopAccessingSecurityScopedResource() }
-            return try? route.fileURL.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
+        // Creating bookmark data involves file I/O — do it off the main thread
+        let routesToSave = routes
+        DispatchQueue.global(qos: .utility).async {
+            let bookmarks = routesToSave.compactMap { route -> Data? in
+                _ = route.fileURL.startAccessingSecurityScopedResource()
+                defer { route.fileURL.stopAccessingSecurityScopedResource() }
+                return try? route.fileURL.bookmarkData(options: .minimalBookmark, includingResourceValuesForKeys: nil, relativeTo: nil)
+            }
+            UserDefaults.standard.set(bookmarks, forKey: Self.savedBookmarksKey)
         }
-        UserDefaults.standard.set(bookmarks, forKey: Self.savedBookmarksKey)
     }
     #endif
 
     func loadURLs(_ urls: [URL]) {
-        // Snapshot on main thread before going to background
-        let existingURLs = Set(routes.map { $0.fileURL })
+        // Snapshot on main thread before going to background; include URLs already in-flight
+        let existingURLs = Set(routes.map { $0.fileURL }).union(loadingURLs)
         let initialColorIndex = routes.count
+
+        // Show indicator immediately — directory scanning (especially iCloud) can be slow
+        loadingProgress = 0.0
 
         loadQueue.async { [weak self] in
             guard let self else { return }
@@ -157,11 +186,22 @@ class AppState: ObservableObject {
                 }
             }
 
+            // Deduplicate within the batch — folder expansion + individual file bookmarks
+            // can produce the same URL multiple times in a single loadURLs call.
+            var seenInBatch = Set<URL>()
+            allURLs = allURLs.filter { seenInBatch.insert($0).inserted }
+
             let newURLs = allURLs.filter { !existingURLs.contains($0) }
-            guard !newURLs.isEmpty else { return }
+            guard !newURLs.isEmpty else {
+                DispatchQueue.main.async { [weak self] in self?.loadingProgress = nil }
+                return
+            }
+
+            // Track these URLs as in-flight on the main thread so a second loadURLs call
+            // that arrives before the first finishes won't enqueue them again
+            DispatchQueue.main.sync { [weak self] in self?.loadingURLs.formUnion(newURLs) }
 
             let totalCount = newURLs.count
-            DispatchQueue.main.async { [weak self] in self?.loadingProgress = 0.0 }
 
             // Parse all files concurrently; results keyed by original index to preserve order
             var results = [Int: GPXRoute]()
@@ -214,12 +254,19 @@ class AppState: ObservableObject {
             }
 
             // Fit after all batches land — main queue is FIFO so this runs last
+            let loadedURLs = newURLs
             DispatchQueue.main.async { [weak self] in
-                self?.loadingProgress = nil
+                guard let self else { return }
+                self.loadingProgress = nil
+                self.loadingURLs.subtract(loadedURLs)
+                // Deduplicate routes array — heals state that was corrupted by the
+                // folder-bookmark + file-bookmark double-loading bug on previous runs.
+                var seenURLs = Set<URL>()
+                self.routes = self.routes.filter { seenURLs.insert($0.fileURL).inserted }
                 #if os(macOS)
-                self?.persistRouteURLs()
+                self.persistRouteURLs()
                 #else
-                self?.persistRouteBookmarks()
+                self.persistRouteBookmarks()
                 #endif
                 NotificationCenter.default.post(name: .fitAllRoutes, object: self)
             }
@@ -231,6 +278,18 @@ class AppState: ObservableObject {
         selectedRouteIds.remove(id)
         if lastClickedRouteId == id { lastClickedRouteId = nil }
         if hoveredRouteId == id { hoveredRouteId = nil }
+        #if os(macOS)
+        persistRouteURLs()
+        #else
+        persistRouteBookmarks()
+        #endif
+    }
+
+    func removeAllRoutes() {
+        routes = []
+        selectedRouteIds = []
+        lastClickedRouteId = nil
+        hoveredRouteId = nil
         #if os(macOS)
         persistRouteURLs()
         #else

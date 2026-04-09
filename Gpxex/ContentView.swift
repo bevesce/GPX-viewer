@@ -1,5 +1,8 @@
 import SwiftUI
 import UniformTypeIdentifiers
+#if os(iOS)
+import UIKit
+#endif
 
 struct ContentView: View {
     @StateObject private var appState = AppState()
@@ -138,17 +141,6 @@ struct ContentView: View {
                 .padding(.bottom, locationButtonBottomPadding)
                 .animation(.spring(response: 0.4, dampingFraction: 0.75), value: selectedDetent)
             }
-            .overlay(alignment: .bottomLeading) {
-                if let progress = appState.loadingProgress {
-                    ProgressView(value: progress)
-                        .frame(width: 160)
-                        .padding(8)
-                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-                        .shadow(radius: 4)
-                        .padding(.leading, 10)
-                        .padding(.bottom, 8)
-                }
-            }
             .sheet(isPresented: .constant(true)) {
                 RouteListView(searchText: $searchText, selectedDetent: $selectedDetent)
                     .onChange(of: searchText) { _, newValue in
@@ -162,6 +154,21 @@ struct ContentView: View {
                     if case .success(let urls) = result {
                         appState.loadURLs(urls)
                     }
+                }
+                .sheet(isPresented: $appState.showingFolderPicker) {
+                    FolderPicker { url in
+                        appState.showingFolderPicker = false
+                        if let url { appState.loadFolder(url) }
+                    }
+                    .ignoresSafeArea()
+                }
+                .sheet(item: $appState.longPressedRoute) { route in
+                    RouteDetailSheet(route: route)
+                        .environmentObject(appState)
+                        .presentationDetents([.height(200)])
+                        .presentationDragIndicator(.visible)
+                        .presentationBackground(.ultraThinMaterial)
+                        .presentationCornerRadius(20)
                 }
                 .presentationDetents([.height(80), .medium, .large], selection: $selectedDetent)
                 .presentationDragIndicator(.visible)
@@ -227,14 +234,27 @@ struct ContentView: View {
     }
 
     private var openFilesButton: some View {
-        Button(action: { appState.openFilePicker() }) {
+        Menu {
+            Button(action: { appState.openFilePicker() }) {
+                Label("Add Files…", systemImage: "doc.badge.plus")
+            }
+            Button(action: { appState.showingFolderPicker = true }) {
+                Label("Add Folder…", systemImage: "folder.badge.plus")
+            }
+            if !appState.routes.isEmpty {
+                Divider()
+                Button(role: .destructive, action: { appState.removeAllRoutes() }) {
+                    Label("Clear All", systemImage: "trash")
+                }
+            }
+        } label: {
             Image(systemName: "plus")
-                .padding(4)
-                .shadow(radius: 3)
+                .frame(width: 24, height: 24)
+                .padding(8)
         }
-        .padding(8)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .menuStyle(.button)
         .buttonStyle(.plain)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
     }
     #endif
 
@@ -310,3 +330,34 @@ extension Notification.Name {
     static let scrollToRoute      = Notification.Name("scrollToRoute")
     static let zoomToUserLocation = Notification.Name("zoomToUserLocation")
 }
+
+#if os(iOS)
+/// Wraps UIDocumentPickerViewController for folder selection from iCloud Drive and local storage.
+struct FolderPicker: UIViewControllerRepresentable {
+    let onFinish: (URL?) -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(onFinish: onFinish) }
+
+    func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.folder])
+        picker.allowsMultipleSelection = false
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIDocumentPickerViewController, context: Context) {}
+
+    class Coordinator: NSObject, UIDocumentPickerDelegate {
+        let onFinish: (URL?) -> Void
+        init(onFinish: @escaping (URL?) -> Void) { self.onFinish = onFinish }
+
+        func documentPicker(_ controller: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+            onFinish(urls.first)
+        }
+
+        func documentPickerWasCancelled(_ controller: UIDocumentPickerViewController) {
+            onFinish(nil)
+        }
+    }
+}
+#endif

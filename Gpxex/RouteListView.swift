@@ -72,6 +72,14 @@ struct RouteListView: View {
             base = base.filter { $0.totalDistance >= appState.distanceFilterLow && $0.totalDistance <= appState.distanceFilterHigh }
         }
 
+        if appState.showOnlyVisibleRoutes, let bbox = appState.visibleBBox {
+            base = base.filter { route in
+                let b = route.boundingBox
+                return b.maxLat >= bbox.minLat && b.minLat <= bbox.maxLat
+                    && b.maxLon >= bbox.minLon && b.minLon <= bbox.maxLon
+            }
+        }
+
         return base.sorted { lhs, rhs in
             switch (lhs.startTime, rhs.startTime) {
             case (let a?, let b?): return a > b
@@ -105,8 +113,23 @@ struct RouteListView: View {
                 distanceFilterView
                 #endif
             }
+            // Loading progress bar — sits flush at the bottom of the header
+            if let progress = appState.loadingProgress {
+                ProgressView(value: max(progress, 0.02))
+                    .progressViewStyle(.linear)
+                    .tint(.accentColor)
+                    .animation(.linear(duration: 0.2), value: progress)
+                    #if os(iOS)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 4)
+                    #else
+                    .padding(.horizontal, 12)
+                    .padding(.bottom, 4)
+                    #endif
+            }
         }
         #if os(iOS)
+        .background(.thinMaterial)
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: selectedDetent)
         #endif
         .onChange(of: maxRouteDistance) { _, newMax in
@@ -133,31 +156,14 @@ struct RouteListView: View {
     }
 
     private var distanceFilterView: some View {
-        VStack(spacing: 4) {
-            HStack {
-                Text("Distance")
-                    .font(.system(size: 11))
-                    .foregroundColor(.secondary)
-                Spacer()
-                if isDistanceFiltered {
-                    Button("Reset") {
-                        appState.distanceFilterLow = 0
-                        appState.distanceFilterHigh = maxRouteDistance
-                    }
-                    .font(.system(size: 11))
-                    .buttonStyle(.plain)
-                    .foregroundColor(.accentColor)
-                }
-            }
-            DistanceRangeSlider(
-                low: Binding(get: { appState.distanceFilterLow }, set: { appState.distanceFilterLow = $0 }),
-                high: Binding(get: { appState.distanceFilterHigh }, set: { appState.distanceFilterHigh = $0 }),
-                maxDistance: maxRouteDistance
-            )
-        }
+        DistanceRangeSlider(
+            low: Binding(get: { appState.distanceFilterLow }, set: { appState.distanceFilterLow = $0 }),
+            high: Binding(get: { appState.distanceFilterHigh }, set: { appState.distanceFilterHigh = $0 }),
+            maxDistance: maxRouteDistance
+        )
         #if os(iOS)
         .padding(.horizontal, 20)
-        .padding(.bottom, 14)
+        .padding(.bottom, 8)
         #else
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
@@ -178,10 +184,19 @@ struct RouteListView: View {
                         .foregroundColor(.secondary)
                 })
                 .safeAreaInset(edge: .trailing, content: {
-                    if !searchText.isEmpty {
-                        Button(action: { searchText = "" }) {
-                            Image(systemName: "xmark.circle.fill")
-                                .foregroundColor(.secondary)
+                    HStack(spacing: 4) {
+                        if !searchText.isEmpty {
+                            Button(action: { searchText = "" }) {
+                                Image(systemName: "xmark.circle.fill")
+                                    .foregroundColor(.secondary)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        Button {
+                            appState.showOnlyVisibleRoutes.toggle()
+                        } label: {
+                            Image(systemName: appState.showOnlyVisibleRoutes ? "map.fill" : "map")
+                                .foregroundColor(appState.showOnlyVisibleRoutes ? .accentColor : .secondary)
                         }
                         .buttonStyle(.plain)
                     }
@@ -514,6 +529,77 @@ struct DistanceRangeSlider: View {
             .frame(width: thumbR * 2, height: thumbR * 2)
     }
 }
+
+// MARK: - RouteDetailSheet (iOS long-press popup)
+
+#if !os(macOS)
+struct RouteDetailSheet: View {
+    let route: GPXRoute
+    @EnvironmentObject var appState: AppState
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(route.color.swiftUI)
+                    .frame(width: 18, height: 18)
+                Text(route.fileName)
+                    .font(.headline)
+                    .lineLimit(2)
+            }
+
+            Divider()
+
+            HStack(spacing: 24) {
+                if route.totalDistance > 0 {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label(formatDistance(route.totalDistance), systemImage: "arrow.triangle.swap")
+                            .font(.system(size: 15))
+                    }
+                }
+                if let dur = route.duration {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Label(formatDuration(dur), systemImage: "clock")
+                            .font(.system(size: 15))
+                    }
+                }
+            }
+            .foregroundColor(.primary)
+
+            if let start = route.startTime {
+                HStack(spacing: 4) {
+                    Text(dateFormatter.string(from: start))
+                    Text("\u{00B7}")
+                    Text(timeFormatter.string(from: start))
+                    if let end = route.endTime, end != start {
+                        Text("\u{2013}")
+                        Text(timeFormatter.string(from: end))
+                    }
+                }
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+            }
+
+            HStack(spacing: 12) {
+                Button {
+                    NotificationCenter.default.post(name: .zoomToRoute, object: route.id)
+                    appState.longPressedRoute = nil
+                } label: {
+                    Label("Zoom to Route", systemImage: "arrow.up.left.and.arrow.down.right")
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                        .foregroundColor(.accentColor)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+#endif
 
 // MARK: - RenameRouteView
 

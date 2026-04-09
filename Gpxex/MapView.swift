@@ -70,6 +70,7 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDe
     var lastFilteredRouteIds: Set<UUID> = []
     var lastSelectedIds: Set<UUID> = []
     var lastHoveredId: UUID? = nil
+    var lastShowOnlyVisible = false
 
     // Route data lookup
     private var routeIndex: [UUID: GPXRoute] = [:]
@@ -299,6 +300,18 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDe
     // MARK: Region changes
 
     func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+        // Always update visible bbox (cheap) so the "visible on map" filter stays accurate
+        if appState.showOnlyVisibleRoutes {
+            let r = mapView.region
+            let bbox = RouteBoundingBox(
+                minLat: r.center.latitude  - r.span.latitudeDelta  / 2,
+                maxLat: r.center.latitude  + r.span.latitudeDelta  / 2,
+                minLon: r.center.longitude - r.span.longitudeDelta / 2,
+                maxLon: r.center.longitude + r.span.longitudeDelta / 2
+            )
+            DispatchQueue.main.async { [weak self] in self?.appState.visibleBBox = bbox }
+        }
+
         let newSpan = mapView.region.span.latitudeDelta
 
         // P1: Skip entirely on pure pan — only proceed when zoom level changed (>1%)
@@ -386,6 +399,18 @@ final class MapViewCoordinator: NSObject, MKMapViewDelegate, CLLocationManagerDe
         }
     }
     #else
+    @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
+        guard gesture.state == .began, let mapView else { return }
+        let point = gesture.location(in: mapView)
+        let routeId = nearestRoute(to: point, in: mapView, threshold: 22)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            if let routeId, let route = self.routeIndex[routeId] {
+                self.appState.longPressedRoute = route
+            }
+        }
+    }
+
     @objc func handleTap(_ gesture: UITapGestureRecognizer) {
         guard let mapView else { return }
         let point = gesture.location(in: mapView)
@@ -633,6 +658,13 @@ struct MapView: UIViewRepresentable {
         )
         mapView.addGestureRecognizer(tap)
 
+        let longPress = UILongPressGestureRecognizer(
+            target: context.coordinator,
+            action: #selector(MapViewCoordinator.handleLongPress(_:))
+        )
+        longPress.minimumPressDuration = 0.5
+        mapView.addGestureRecognizer(longPress)
+
         NotificationCenter.default.addObserver(
             context.coordinator,
             selector: #selector(MapViewCoordinator.handleFitAll),
@@ -664,6 +696,20 @@ struct MapView: UIViewRepresentable {
         let coord = context.coordinator
         let currentIds = appState.routes.map { $0.id }
         let filtered = appState.filteredRouteIds
+
+        // When "visible on map" filter is turned on, seed the bbox immediately
+        if appState.showOnlyVisibleRoutes != coord.lastShowOnlyVisible {
+            coord.lastShowOnlyVisible = appState.showOnlyVisibleRoutes
+            if appState.showOnlyVisibleRoutes {
+                let r = mapView.region
+                appState.visibleBBox = RouteBoundingBox(
+                    minLat: r.center.latitude  - r.span.latitudeDelta  / 2,
+                    maxLat: r.center.latitude  + r.span.latitudeDelta  / 2,
+                    minLon: r.center.longitude - r.span.longitudeDelta / 2,
+                    maxLon: r.center.longitude + r.span.longitudeDelta / 2
+                )
+            }
+        }
 
         if currentIds != coord.lastRouteIds {
             coord.updateOverlays(on: mapView)
